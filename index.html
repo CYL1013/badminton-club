@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>羽球季費帳本</title>
+<meta name="description" content="羽球社團的季費、臨打收費與球錢管理">
+<meta name="theme-color" content="#1c6a47">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="羽球帳本">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef3ef; --surface:#ffffff; --ink:#15231b; --muted:#5a6b61; --line:#d4ded7;
+  --court:#1c6a47; --court-ink:#ffffff; --court-soft:#dcebe2;
+  --cork:#9c5f22; --cork-soft:#f4e7d8;
+  --warn:#b8361f; --warn-soft:#fbe5df; --good:#1f7446; --good-soft:#dff0e5; --chip:#e6eee8;
+  --sans:"Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+  --num:"Barlow Condensed","Noto Sans TC",system-ui,sans-serif;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0e1511; --surface:#16201a; --ink:#e4ece6; --muted:#90a197; --line:#283730;
+  --court:#4cb584; --court-ink:#0b1510; --court-soft:#1c3328;
+  --cork:#d69a5a; --cork-soft:#33261a;
+  --warn:#f07158; --warn-soft:#3a1d17; --good:#5cc38b; --good-soft:#173324; --chip:#1f2c24; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 110px;display:flex;flex-direction:column;gap:14px}
+h1,h2,h3{margin:0;text-wrap:balance}
+h1{font-size:19px;font-weight:700;letter-spacing:.02em}
+h2{font-size:16px;font-weight:700}
+h3{font-size:12px;font-weight:500;color:var(--muted);letter-spacing:.08em}
+p{margin:0}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.num{font-family:var(--num);font-variant-numeric:tabular-nums;font-weight:600;letter-spacing:.01em}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--court);outline-offset:2px}
+
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-block:6px 10px;border-bottom:3px double var(--court)}
+.top .sub{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select,input[type=text],input[type=date],input[type=number],input[type=password],input[type=url],textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+textarea{width:100%;min-height:150px;resize:vertical;line-height:1.6}
+#sync{font-size:12px;color:var(--muted)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+details.card>summary{cursor:pointer;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.card>summary::after{content:"＋";color:var(--court)}
+details.card[open]>summary::after{content:"－"}
+details.card[open]>summary{margin-bottom:12px}
+
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 12px;font-weight:500}
+.btn.pri{background:var(--court);border-color:var(--court);color:var(--court-ink)}
+.btn.ghost{background:transparent}
+.btn.warn{color:var(--warn);border-color:var(--warn)}
+.btn.sm{padding:4px 9px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:default}
+.row-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+.dates{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.dchip{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:5px 10px;text-align:center;line-height:1.15;position:relative}
+.dchip .num{font-size:18px;display:block}
+.dchip small{font-size:11px;color:var(--muted)}
+.dchip.on{background:var(--court);border-color:var(--court);color:var(--court-ink)}
+.dchip.on small{color:inherit;opacity:.8}
+.dchip.has::after{content:"";position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--cork)}
+
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.stat{background:var(--chip);border-radius:10px;padding:8px 10px;min-width:0}
+.stat b{display:block;font-family:var(--num);font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.stat.alert{background:var(--warn-soft)} .stat.alert b{color:var(--warn)}
+.stat.extra{background:var(--good-soft)} .stat.extra b{color:var(--good)}
+@media (max-width:480px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+ul.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+ul.list li{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+ul.list li:first-child{border-top:0}
+.nm{font-weight:500;flex:1 1 auto;min-width:5em}
+.idx{font-family:var(--num);color:var(--muted);width:1.4em;text-align:right}
+.tag{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.tag.m{background:var(--court-soft);color:var(--court)}
+.tag.new{background:var(--cork-soft);color:var(--cork)}
+.pay{border-radius:99px;padding:3px 11px;font-size:13px;border:1px solid}
+.pay.ok{background:var(--good-soft);border-color:transparent;color:var(--good)}
+.pay.due{background:var(--warn-soft);border-color:var(--warn);color:var(--warn);font-weight:700}
+input.amt{width:4.6em;text-align:right;padding:4px 6px}
+.x{border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;padding:2px 6px}
+
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px dashed var(--line);background:transparent;border-radius:99px;padding:4px 11px;font-size:13px}
+.chip:hover{border-color:var(--court);color:var(--court)}
+
+.stepper{display:flex;align-items:center;gap:10px}
+.stepper button{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:20px;line-height:1}
+.stepper .num{font-size:30px;min-width:1.6em;text-align:center}
+.cork{color:var(--cork)}
+
+.parse-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.parse-row select{max-width:12em}
+
+.gridwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table.g{border-collapse:collapse;font-size:13px;white-space:nowrap}
+table.g th,table.g td{border-bottom:1px solid var(--line);padding:0;text-align:center}
+table.g th{font-weight:500;color:var(--muted);font-size:12px;padding:6px 4px}
+table.g th.dh{cursor:pointer}
+table.g th.dh:hover{color:var(--court)}
+table.g .first{position:sticky;left:0;background:var(--surface);text-align:left;padding:6px 10px;z-index:1;border-right:1px solid var(--line)}
+table.g td.c{width:44px;height:32px;cursor:pointer;font-family:var(--num);font-variant-numeric:tabular-nums;font-size:15px}
+table.g td.c.att{color:var(--court)}
+table.g td.c.paid{background:var(--good-soft);color:var(--good)}
+table.g td.c.due{background:var(--warn-soft);color:var(--warn);font-weight:700}
+table.g td.sum{font-family:var(--num);font-variant-numeric:tabular-nums;padding:6px 8px;font-size:15px}
+table.g tr.sep td,table.g tr.sep th{border-top:2px solid var(--court)}
+table.g tfoot td{color:var(--muted)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+
+.pform{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:10px 0 4px;width:100%}
+.pform label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.pform input,.pform select{color:var(--ink);font-size:15px}
+.expand{cursor:pointer}
+.right{margin-left:auto;text-align:right}
+
+.bal{font-family:var(--num);font-size:22px;font-variant-numeric:tabular-nums;font-weight:600}
+.pos{color:var(--good)} .neg{color:var(--warn)}
+.srow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--line)}
+.srow:first-of-type{border-top:0}
+.srow .figs{font-size:12px;color:var(--muted);grid-column:1/-1}
+.srow .acts{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.srow.done{opacity:.55}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:4px 11px;font-size:13px}
+.seg button.on{background:var(--court);color:var(--court-ink)}
+.hint{font-size:13px}
+label.ck{display:inline-flex;gap:6px;align-items:center;font-size:13px}
+.note{font-size:13px;color:var(--muted);background:var(--chip);border-radius:8px;padding:8px 10px}
+.warnnote{font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:8px;padding:8px 10px}
+.totals{display:flex;gap:16px;flex-wrap:wrap}
+
+nav#tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+nav#tabs .in{display:flex;width:100%;max-width:760px}
+nav#tabs button{flex:1;border:0;background:transparent;padding:9px 2px 10px;font-size:13px;color:var(--muted);border-top:3px solid transparent}
+nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:700}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:99px;font-size:13px;z-index:6;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}}
+
+/* gate / loading */
+#gate{min-height:100svh;display:flex;align-items:center;justify-content:center;padding:24px max(16px,env(safe-area-inset-left,0px)) 24px max(16px,env(safe-area-inset-right,0px))}
+.gatecard{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.gatecard h1{font-size:20px}
+.gatecard label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted)}
+.gatecard input{font-size:16px}
+.gateerr{font-size:13px;color:var(--warn)}
+.loading{min-height:100svh;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="gate" hidden></div>
+<div id="app"></div>
+<nav id="tabs" hidden><div class="in">
+  <button data-act="tab" data-v="session">本週</button>
+  <button data-act="tab" data-v="grid">出席表</button>
+  <button data-act="tab" data-v="people">成員</button>
+  <button data-act="tab" data-v="balls">羽球</button>
+  <button data-act="tab" data-v="settle">結算</button>
+</div></nav>
+<div id="toast" hidden></div>
+
+<script>
+const DEF={court:800,cap:8,fee:100,bucketPrice:600,perBucket:12};
+let state=null, loaded=false, version=null, mode='loading';
+let CFG=null;try{const t=localStorage.getItem('bm_cfg');CFG=t?JSON.parse(t):null}catch(e){CFG=null}
+const ui={tab:'session',date:null,lineText:'',parse:null,open:null,ns:null};
+try{ui.tab=localStorage.getItem('bm_tab')||'session'}catch(e){}
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Math.random().toString(36).slice(2,9);
+const md=d=>{const p=d.split('-');return (+p[1])+'/'+(+p[2])};
+const dt=d=>new Date(d+'T00:00:00Z');
+const wd=d=>'日一二三四五六'[dt(d).getUTCDay()];
+const addDays=(d,n)=>{const x=dt(d);x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10)};
+const today=()=>{const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')};
+const money=n=>{n=Math.round(n);return (n<0?'−':'')+'$'+Math.abs(n).toLocaleString()};
+const signed=n=>{n=Math.round(n);return n===0?'$0':(n>0?'+':'−')+'$'+Math.abs(n).toLocaleString()};
+const fee=()=>state.settings.fee;
+const ballPrice=()=>state.settings.bucketPrice/state.settings.perBucket;
+const norm=n=>String(n).replace(/\s+/g,'').toLowerCase();
+function S(){return state.seasons.find(s=>s.id===state.cur)||state.seasons[state.seasons.length-1]}
+const person=id=>state.people.find(p=>p.id===id)||{id,name:'(已刪除)',aliases:[]};
+const pname=id=>person(id).name;
+const isMember=(s,id)=>s.members.includes(id);
+const getSess=(s,d)=>s.sessions[d]||{att:{},backup:[],balls:0};
+function sess(s,d){if(!s.sessions[d])s.sessions[d]={att:{},backup:[],balls:0};const x=s.sessions[d];x.att=x.att||{};x.backup=x.backup||[];x.balls=x.balls||0;return x}
+function share(s,d){const x=getSess(s,d);const n=Object.keys(x.att||{}).length;return n&&x.balls?Math.ceil(x.balls*ballPrice()/n):0}
+function memberFee(s,id){const v=s.memberFee[id];return v==null?s.dates.length*fee():v}
+function income(s,d){const x=getSess(s,d);let t=0;for(const id in x.att)t+=isMember(s,id)?fee():(x.att[id].paid||0);return t}
+function normalize(st){
+  st=st||{};st.settings={...DEF,...(st.settings||{})};st.people=st.people||[];
+  st.seasons=(st.seasons||[]).map(s=>({name:'',closed:false,dates:[],members:[],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{},...s}));
+  if(!st.cur&&st.seasons.length)st.cur=st.seasons[st.seasons.length-1].id;
+  return st;
+}
+function calc(s){
+  const out={};const ids=[];const addId=id=>{if(!out[id]){out[id]={pid:id,member:isMember(s,id),att:0,paid:0,ball:0,unpaid:0};ids.push(id)}};
+  s.members.forEach(addId);
+  state.people.forEach(p=>{if(s.dates.some(d=>getSess(s,d).att?.[p.id])||s.carry[p.id])addId(p.id)});
+  for(const d of s.dates){const x=getSess(s,d);const sh=share(s,d);for(const id in (x.att||{})){addId(id);const o=out[id];o.att++;o.ball+=sh;if(!o.member){const p=x.att[id].paid||0;o.paid+=p;if(p<fee())o.unpaid+=fee()-p}}}
+  for(const id of ids){const o=out[id];o.carry=s.carry[id]||0;
+    if(o.member){o.fee=memberFee(s,id);o.feePaid=s.feePaid[id]||0;o.slots=Math.round(o.fee/fee());o.remain=o.slots-o.att;o.due=Math.max(0,o.fee-o.carry-o.feePaid);o.balance=o.carry+o.feePaid-o.att*fee()-o.ball}
+    else{o.balance=o.carry+o.paid-o.att*fee()-o.ball}}
+  return {ids,out};
+}
+function findPerson(nm){const k=norm(nm);return state.people.find(p=>norm(p.name)===k||(p.aliases||[]).some(a=>norm(a)===k))}
+function findOrCreate(nm){let p=findPerson(nm);if(!p){p={id:uid(),name:nm.trim(),aliases:[]};state.people.push(p)}return p}
+function pickDate(s){if(ui.date&&s.dates.includes(ui.date))return ui.date;const t=today();ui.date=s.dates.find(d=>d>=t)||s.dates[s.dates.length-1]||null;return ui.date}
+function genDates(start,n){const a=[];for(let i=0;i<n;i++)a.push(addDays(start,i*7));return a}
+function genDatesSkip(start,n,skipSet){const a=[];let d=start,guard=0;while(a.length<n&&guard<300){if(!skipSet.has(d))a.push(d);d=addDays(d,7);guard++}return a}
+function seasonName(dates){if(!dates.length)return '新的一季';const a=dt(dates[0]),b=dt(dates[dates.length-1]);const y1=a.getUTCFullYear(),y2=b.getUTCFullYear();return `${y1}/${a.getUTCMonth()+1} – ${y2!==y1?y2+'/':''}${b.getUTCMonth()+1}月（週${wd(dates[0])}）`}
+
+/* ---------- backend (Google Apps Script) ---------- */
+async function apiGet(url,pw){
+  const res=await fetch(url+(url.includes('?')?'&':'?')+'action=get&token='+encodeURIComponent(pw));
+  if(!res.ok)throw {kind:'http',status:res.status};
+  let j;try{j=await res.json()}catch(e){throw {kind:'badresponse'}}
+  if(!j.ok)throw {kind:'api',error:j.error};
+  return j;
+}
+async function apiSet(data,expectedVersion){
+  const res=await fetch(CFG.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'set',token:CFG.pw,data,expectedVersion})});
+  if(!res.ok)throw {kind:'http',status:res.status};
+  let j;try{j=await res.json()}catch(e){throw {kind:'badresponse'}}
+  if(!j.ok&&j.error!=='conflict')throw {kind:'api',error:j.error};
+  return j;
+}
+function cacheState(){try{localStorage.setItem('bm_cache',JSON.stringify({state,version}))}catch(e){}}
+function loadCache(){try{const t=localStorage.getItem('bm_cache');return t?JSON.parse(t):null}catch(e){return null}}
+
+/* ---------- gate ---------- */
+function renderGate(err){
+  $('#tabs').hidden=true;$('#app').innerHTML='';
+  const g=$('#gate');g.hidden=false;
+  g.innerHTML=`<div class="gatecard">
+    <div><h3>BADMINTON</h3><h1>羽球季費帳本</h1></div>
+    <p class="muted small">第一次使用，請貼上 Google Apps Script 的網址和你設定的密碼。之後這台裝置會記住，不用再輸入。</p>
+    <label>後端網址（/exec 結尾）<input type="url" id="g-url" placeholder="https://script.google.com/macros/s/..../exec" value="${esc((CFG&&CFG.url)||'')}"></label>
+    <label>密碼<input type="password" id="g-pw" value="${esc((CFG&&CFG.pw)||'')}"></label>
+    ${err?`<p class="gateerr">${esc(err)}</p>`:''}
+    <button class="btn pri" id="g-go">進入</button>
+  </div>`;
+  $('#g-go').addEventListener('click',gateSubmit);
+  [$('#g-url'),$('#g-pw')].forEach(el=>el.addEventListener('keydown',e=>{if(e.key==='Enter')gateSubmit()}));
+}
+async function gateSubmit(){
+  const url=$('#g-url').value.trim().replace(/\s+/g,'');const pw=$('#g-pw').value;
+  if(!url||!pw){renderGate('請填寫網址和密碼');return}
+  const btn=$('#g-go');btn.disabled=true;btn.textContent='連線中…';
+  try{
+    const j=await apiGet(url,pw);
+    CFG={url,pw};try{localStorage.setItem('bm_cfg',JSON.stringify(CFG))}catch(e){}
+    state=normalize(j.data);version=j.version;loaded=true;mode='cloud';cacheState();
+    $('#gate').hidden=true;startPolling();render();
+  }catch(err){
+    btn.disabled=false;btn.textContent='進入';
+    if(err.kind==='api'&&err.error==='bad_password')renderGate('密碼錯誤');
+    else renderGate('連不到這個網址，確認是不是貼錯了，或是部署時「誰可以存取」有沒有選「所有人」');
+  }
+}
+
+/* ---------- persistence ---------- */
+let writing=false,dirty=false,timer=null,pollTimer=null;
+function setSync(t){const el=$('#sync');if(el)el.textContent=t}
+function save(msg){render();if(msg)toast(msg);
+  dirty=true;clearTimeout(timer);timer=setTimeout(flush,350);setSync('儲存中…')}
+async function flush(){if(writing||!dirty)return;writing=true;dirty=false;
+  const snapshot=JSON.parse(JSON.stringify(state));
+  try{
+    const j=await apiSet(snapshot,version);
+    if(j.ok){version=j.version;setSync('已存到雲端');cacheState()}
+    else if(j.error==='conflict'){state=normalize(j.data);version=j.version;cacheState();setSync('已存到雲端');toast('資料在別的裝置被更新了，已重新整理，請確認剛剛的修改還在');render()}
+  }catch(e){
+    dirty=true;
+    if(e.kind==='api'&&e.error==='bad_password')setSync('密碼不對，請在「結算」清除登入設定重新輸入');
+    else{setSync('離線中，稍後自動重試');setTimeout(flush,2500+Math.random()*1500)}
+  }
+  writing=false;if(dirty&&!(timer))flush()}
+function startPolling(){clearInterval(pollTimer);pollTimer=setInterval(pollRefresh,25000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pollRefresh()});
+  window.addEventListener('online',()=>{setSync('連線恢復');if(dirty)flush();else pollRefresh()});
+  window.addEventListener('offline',()=>setSync('離線中'))}
+async function pollRefresh(){if(!CFG||writing||dirty)return;
+  try{const j=await apiGet(CFG.url,CFG.pw);if(j.ok&&j.version!==version){state=normalize(j.data);version=j.version;cacheState();render();setSync('已存到雲端')}}
+  catch(e){}}
+async function boot(){
+  if(!CFG){renderGate();return}
+  $('#app').innerHTML=`<div class="loading">載入中…</div>`;
+  try{
+    const j=await apiGet(CFG.url,CFG.pw);
+    state=normalize(j.data);version=j.version;loaded=true;mode='cloud';cacheState();startPolling();render();
+  }catch(err){
+    const c=loadCache();
+    if(c){state=normalize(c.state);version=c.version;loaded=true;mode='offline';render();setSync('離線中，顯示上次同步的資料');startPolling()}
+    else if(err.kind==='api'&&err.error==='bad_password')renderGate('密碼錯誤，請重新輸入');
+    else renderGate('連不到後端，請檢查網路，或在下面重新確認網址／密碼');
+  }
+}
+let toastT;function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,2200)}
+
+/* ---------- views ---------- */
+function header(s){
+  const opts=state&&state.seasons.length?`<select id="seasonSel" data-ch="season" aria-label="選擇季">${state.seasons.map(x=>`<option value="${x.id}" ${s&&x.id===s.id?'selected':''}>${esc(x.name)}${x.closed?'（已結束）':''}</option>`).join('')}</select>`:'';
+  return `<header class="top"><div><h3>BADMINTON · 季費帳本</h3><h1>羽球季費帳本</h1></div><div class="sub">${opts}<span id="sync">${mode==='offline'?'離線中，顯示上次同步的資料':''}</span></div></header>`;
+}
+function vEmpty(){return `<div class="card"><h2>還沒有任何一季</h2><p class="muted">先建立一季：選第一次打球的日期和次數，之後在「成員」加入 8 位季費會員。</p>${nsForm(null)}</div>`}
+
+function vSession(s){
+  const d=pickDate(s);
+  const strip=`<div class="dates" role="tablist">${s.dates.map(x=>{const has=Object.keys(getSess(s,x).att||{}).length;return `<button class="dchip ${x===d?'on':''} ${has?'has':''}" data-act="date" data-d="${x}"><span class="num">${md(x)}</span><small>週${wd(x)}</small></button>`}).join('')}<label class="dchip" style="cursor:pointer"><span class="num">＋</span><small>加日期</small><input type="date" data-ch="addDate" style="position:absolute;opacity:0;inset:0;width:100%"></label></div>`;
+  if(!d)return strip+`<div class="card"><p class="muted">這一季還沒有日期，按「＋加日期」新增。</p></div>`;
+  const x=getSess(s,d);const ids=Object.keys(x.att||{});
+  const mem=ids.filter(id=>isMember(s,id)),gst=ids.filter(id=>!isMember(s,id));
+  const cap=state.settings.cap,n=ids.length,inc=income(s,d);
+  const owe=gst.filter(id=>(x.att[id].paid||0)<fee());
+  const absent=s.members.filter(id=>!x.att[id]);
+  const backups=(x.backup||[]).filter(id=>!x.att[id]);
+  const sh=share(s,d);
+  const rows=[...mem,...gst].map((id,i)=>{const m=isMember(s,id);const p=x.att[id].paid||0;
+    return `<li><span class="idx">${i+1}</span><span class="nm">${esc(pname(id))}</span>${m?'<span class="tag m">季費</span>':`<span class="tag">臨打</span><button class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`}<button class="x" data-act="rm" data-id="${id}" aria-label="移除 ${esc(pname(id))}">×</button></li>`}).join('');
+  return `${strip}
+  <div class="stats">
+    <div class="stat ${n>cap?'extra':''}"><b>${n}<small style="font-size:15px;color:var(--muted)">/${cap}</small></b><span>出席 · 季費${mem.length} 臨打${gst.length}</span></div>
+    <div class="stat"><b>${money(inc)}</b><span>場地收入（場地 ${money(state.settings.court)}）</span></div>
+    <div class="stat ${owe.length?'alert':''}"><b>${owe.length}</b><span>臨打未收</span></div>
+    <div class="stat"><b class="cork">${x.balls||0}<small style="font-size:15px"> 顆</small></b><span>每人球錢 ${money(sh)}</span></div>
+  </div>
+  ${n>cap?`<p class="note">超過 ${cap} 人，多 ${n-cap} 人，當天多收 ${money((n-cap)*fee())}。</p>`:''}
+  <details class="card" ${ui.parse||!n?'open':''}><summary>貼上 LINE 報名</summary>
+    <textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
+    <div class="row-btns"><button class="btn pri" data-act="parse">讀取名單</button>${ui.parse?'<button class="btn ghost" data-act="cancelParse">取消</button>':''}</div>
+    ${ui.parse?parsePreview(s):''}
+  </details>
+  <section class="card"><div class="row-btns"><h2>${md(d)}（週${wd(d)}）出席</h2>${owe.length?`<button class="btn sm right" data-act="payAll">臨打全部已收</button>`:''}</div>
+    ${n?`<ul class="list">${rows}</ul>`:'<p class="muted">還沒有人。貼上 LINE 名單，或從下面點名加入。</p>'}
+    ${absent.length?`<div><h3>季費會員沒來（點一下加入）</h3><div class="chips" style="margin-top:6px">${absent.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
+    ${backups.length?`<div><h3>備取（點一下上場）</h3><div class="chips" style="margin-top:6px">${backups.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
+    <div class="row-btns"><input type="text" id="guestName" list="plist" placeholder="加臨打（輸入名字）" style="flex:1"><datalist id="plist">${state.people.map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist><button class="btn" data-act="addGuest">加入</button></div>
+  </section>
+  <section class="card"><h2>這次用了幾顆球</h2>
+    <div class="row-btns"><div class="stepper"><button data-act="ball" data-v="-1" aria-label="少一顆">−</button><span class="num cork">${x.balls||0}</span><button data-act="ball" data-v="1" aria-label="多一顆">＋</button></div>
+    <p class="muted small">一顆 ${money(ballPrice())}，${n||0} 人平分，每人 ${money(sh)}（無條件進位）。季末一起收。</p></div>
+  </section>
+  ${!n?`<button class="btn ghost warn sm" data-act="delDate" data-d="${d}" style="align-self:flex-start">這天不打，從本季移除 ${md(d)}</button>`:''}`;
+}
+function parsePreview(s){
+  const P=ui.parse;
+  const opt=(row,list,i)=>row.pid?`<span class="tag ${isMember(s,row.pid)?'m':''}">${isMember(s,row.pid)?'季費':'臨打'}</span><span class="small muted">${norm(pname(row.pid))!==norm(row.name)?'＝'+esc(pname(row.pid)):'✓'}</span>`
+    :`<select data-ch="pchoice" data-list="${list}" data-i="${i}" aria-label="${esc(row.name)} 對應"><option value="new" ${row.choice==='new'?'selected':''}>新增為臨打</option><option value="skip" ${row.choice==='skip'?'selected':''}>略過</option><optgroup label="其實是…">${state.people.map(p=>`<option value="${p.id}" ${row.choice===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</optgroup></select>`;
+  const unknown=[...P.main,...P.backup].filter(r=>!r.pid).length;
+  return `<div style="display:flex;flex-direction:column;gap:6px">
+    <div class="row-btns"><span>日期</span><select data-ch="pdate">${[...new Set([...s.dates,P.date].filter(Boolean))].sort().map(x=>`<option value="${x}" ${x===P.date?'selected':''}>${md(x)}（週${wd(x)}）${s.dates.includes(x)?'':' 新增此日期'}</option>`).join('')}</select></div>
+    ${unknown?`<p class="note">有 ${unknown} 個名字找不到。新的人選「新增為臨打」；如果是暱稱，選他本人，下次就會自動認得。</p>`:''}
+    <h3>正選 ${P.main.length} 人</h3>
+    ${P.main.map((r,i)=>`<div class="parse-row"><span class="idx">${i+1}</span><span class="nm">${esc(r.name)}</span><span>${opt(r,'main',i)}</span></div>`).join('')}
+    ${P.backup.length?`<h3>備取 ${P.backup.length} 人</h3>${P.backup.map((r,i)=>`<div class="parse-row"><span class="idx">備${i+1}</span><span class="nm">${esc(r.name)}</span><span>${opt(r,'backup',i)}</span></div>`).join('')}`:''}
+    ${!P.main.length?'<p class="warnnote">沒讀到名單。每行要像「1.名字」。</p>':`<div class="row-btns" style="margin-top:6px"><button class="btn pri" data-act="apply">設為 ${md(P.date)} 出席名單</button></div>`}
+  </div>`;
+}
+function vGrid(s){
+  const {ids,out}=calc(s);
+  const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
+  const cell=(id,d)=>{const a=getSess(s,d).att?.[id];if(!a)return `<td class="c" data-act="cell" data-id="${id}" data-d="${d}"></td>`;
+    if(out[id].member)return `<td class="c att" data-act="cell" data-id="${id}" data-d="${d}">●</td>`;
+    const p=a.paid||0;return p>=fee()?`<td class="c paid" data-act="cell" data-id="${id}" data-d="${d}">${p}</td>`:`<td class="c due" data-act="cell" data-id="${id}" data-d="${d}">${p?p:'欠'}</td>`};
+  const row=(id,first)=>{const o=out[id];return `<tr class="${first?'sep':''}"><th class="first" scope="row">${esc(pname(id))}</th>${s.dates.map(d=>cell(id,d)).join('')}<td class="sum">${o.att}</td><td class="sum ${o.member?'':(o.unpaid?'neg':'')}">${o.member?(o.remain+' 次'):(o.unpaid?'欠'+o.unpaid:'—')}</td></tr>`};
+  const foot=(label,f)=>`<tr><th class="first">${label}</th>${s.dates.map(d=>`<td class="sum">${f(d)}</td>`).join('')}<td></td><td></td></tr>`;
+  return `<div class="legend"><span><i style="background:var(--court-soft)"></i>● 季費出席</span><span><i style="background:var(--good-soft)"></i>臨打已收</span><span><i style="background:var(--warn-soft)"></i>臨打未收</span><span>點格子切換</span></div>
+  <div class="gridwrap"><table class="g"><thead><tr><th class="first">姓名</th>${s.dates.map(d=>`<th class="dh" data-act="date" data-d="${d}">${md(d)}</th>`).join('')}<th>出席</th><th>剩餘／欠</th></tr></thead>
+  <tbody>${mem.map((id,i)=>row(id,false)).join('')}${gst.map((id,i)=>row(id,i===0)).join('')}</tbody>
+  <tfoot>${foot('人數',d=>Object.keys(getSess(s,d).att||{}).length||'')}${foot('用球',d=>getSess(s,d).balls||'')}${foot('每人球錢',d=>share(s,d)||'')}${foot('收入',d=>income(s,d)||'')}</tfoot></table></div>
+  <p class="muted small">點日期可以打開那一天。季費會員：點一下出席／取消。臨打：空白 → 已收 ${fee()} → 未收 → 空白。</p>`;
+}
+function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
+  return `<div class="pform">
+    <label>名字<input type="text" id="pn-${id}" data-ch="pname" data-id="${id}" value="${esc(p.name)}"></label>
+    <label>LINE 上的其他稱呼（用逗號分開）<input type="text" id="pa-${id}" data-ch="palias" data-id="${id}" value="${esc((p.aliases||[]).join(', '))}"></label>
+    <label>這一季身分<select id="pr-${id}" data-ch="prole" data-id="${id}"><option value="m" ${m?'selected':''}>季費會員</option><option value="g" ${m?'':'selected'}>臨打</option></select></label>
+    ${m?`<label>本季季費<input type="number" inputmode="numeric" id="pf-${id}" data-ch="pfee" data-id="${id}" value="${memberFee(s,id)}"></label>
+    <label>本季已繳<input type="number" inputmode="numeric" id="pp-${id}" data-ch="ppaid" data-id="${id}" value="${s.feePaid[id]||0}"></label>`:''}
+    <label>上季結轉（正數＝可折抵）<input type="number" inputmode="numeric" id="pc-${id}" data-ch="pcarry" data-id="${id}" value="${s.carry[id]||0}"></label>
+  </div><div class="row-btns">${m&&o&&o.due>0?`<button class="btn sm pri" data-act="feeFull" data-id="${id}">季費繳清（${money(o.due)}）</button>`:''}${o&&o.att?'':`<button class="btn sm warn ghost" data-act="delPerson" data-id="${id}">刪除這個人</button>`}</div>`}
+function vPeople(s){
+  const {ids,out}=calc(s);const cap=state.settings.cap;
+  const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
+  const others=state.people.filter(p=>!out[p.id]);
+  const li=id=>{const o=out[id];const open=ui.open===id;
+    const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}`
+      :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}`;
+    return `<li><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
+  return `<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
+    ${mem.length?`<ul class="list">${mem.map(li).join('')}</ul>`:'<p class="muted">還沒有季費會員。從下面新增，或把臨打設成季費會員。</p>'}</section>
+  <section class="card"><h2>本季臨打</h2>${gst.length?`<ul class="list">${gst.map(li).join('')}</ul>`:'<p class="muted">這一季還沒有臨打。</p>'}</section>
+  ${others.length?`<section class="card"><h2>其他人</h2><p class="muted small">以前來過、這季還沒出現的人。點一下設為本季季費會員。</p><div class="chips">${others.map(p=>`<button class="chip" data-act="mkMember" data-id="${p.id}">${esc(p.name)}</button>`).join('')}</div></section>`:''}
+  <section class="card"><h2>新增成員</h2><div class="row-btns"><input type="text" id="newName" placeholder="名字" style="flex:1"><select id="newRole"><option value="m">季費會員</option><option value="g">臨打</option></select><button class="btn pri" data-act="newPerson">新增</button></div></section>`;
+}
+function vBalls(s){
+  const per=state.settings.perBucket;
+  const bought=s.purchases.reduce((a,p)=>a+p.buckets*per,0),spent=s.purchases.reduce((a,p)=>a+p.buckets*p.price,0);
+  const used=s.dates.reduce((a,d)=>a+(getSess(s,d).balls||0),0);
+  const collected=s.dates.reduce((a,d)=>a+share(s,d)*Object.keys(getSess(s,d).att||{}).length,0);
+  const stock=bought-used;
+  return `<div class="stats">
+    <div class="stat ${stock<0?'alert':''}"><b>${stock}</b><span>剩餘顆數</span></div>
+    <div class="stat"><b class="cork">${used}</b><span>本季已用</span></div>
+    <div class="stat"><b>${money(spent)}</b><span>買球花費（${bought} 顆）</span></div>
+    <div class="stat"><b>${money(collected)}</b><span>大家分攤的球錢</span></div>
+  </div>
+  ${stock<0?`<p class="warnnote">用掉的比買的多 ${-stock} 顆，可能有一桶還沒記。補一筆購買紀錄就會對上。</p>`:''}
+  <section class="card"><h2>買球紀錄</h2>
+    ${s.purchases.length?`<ul class="list">${s.purchases.map((p,i)=>`<li><span class="num" style="width:3.2em">${md(p.date)}</span><span class="nm">${p.buckets} 桶（${p.buckets*per} 顆）${p.note?`<span class="muted small"> ${esc(p.note)}</span>`:''}</span><span class="num">${money(p.buckets*p.price)}</span><button class="x" data-act="delPurchase" data-i="${i}" aria-label="刪除">×</button></li>`).join('')}</ul>`:'<p class="muted">還沒有買球紀錄。</p>'}
+    <div class="row-btns"><input type="date" id="buyDate" value="${today()}"><input type="number" id="buyN" inputmode="numeric" value="1" min="1" style="width:4em"><span>桶，每桶</span><input type="number" id="buyP" inputmode="numeric" value="${state.settings.bucketPrice}" style="width:5.5em"><button class="btn pri" data-act="addPurchase">記一筆</button></div>
+  </section>
+  <section class="card"><h2>每次用球</h2><ul class="list">${s.dates.filter(d=>Object.keys(getSess(s,d).att||{}).length).map(d=>{const x=getSess(s,d);return `<li><button class="btn sm ghost num" data-act="date" data-d="${d}">${md(d)}</button><span class="nm"><span class="num cork" style="font-size:17px">${x.balls||0}</span> 顆 · ${Object.keys(x.att).length} 人</span><span class="small muted">每人</span><span class="num">${money(share(s,d))}</span></li>`}).join('')||'<li class="muted">還沒有打球紀錄</li>'}</ul>
+  <p class="muted small">球錢 = 用球數 × ${money(ballPrice())} ÷ 當天出席人數，無條件進位到整數。一桶 ${money(state.settings.bucketPrice)}／${per} 顆可在「結算」最下面的設定修改。</p></section>`;
+}
+function vSettle(s){
+  const {ids,out}=calc(s);let refund=0,collect=0,carryOn=0;
+  const rows=ids.map(id=>{const o=out[id];const st=s.settle[id]||{};const b=o.balance;
+    let hint='';
+    if(o.member){if(st.renew===true)hint=b>=0?`續約：下季季費折抵 <b>${money(b)}</b>`:`續約：下季季費要多收 <b>${money(-b)}</b>`;
+      else if(st.renew===false)hint=b>=0?`不續：退給他 <b class="pos">${money(b)}</b>`:`不續：向他收 <b class="neg">${money(-b)}</b>`;
+      else hint='還沒決定要不要續約';}
+    else hint=b>0?`退給他（或留著下次抵）<b class="pos">${money(b)}</b>`:b<0?`向他收 <b class="neg">${money(-b)}</b>`:'已平';
+    if(!st.done){if(o.member&&st.renew===true)carryOn+=b;else if(b>0)refund+=b;else collect+=-b}
+    const figs=o.member?`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已繳 ${money(o.feePaid)} − 場地 ${o.att}×${fee()} − 球錢 ${money(o.ball)} · 剩 ${o.remain} 次`
+      :`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已付 ${money(o.paid)} − 場地 ${o.att}×${fee()} − 球錢 ${money(o.ball)}`;
+    return `<div class="srow ${st.done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> ${o.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'}</div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
+      <div class="figs">${figs}</div>
+      <div class="acts">${o.member?`<span class="seg"><button class="${st.renew===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button class="${st.renew===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`:''}<span class="hint">${hint}</span>
+      <label class="ck right"><input type="checkbox" id="done-${id}" data-ch="done" data-id="${id}" ${st.done?'checked':''}>已結清</label></div></div>`}).join('');
+  return `<section class="card"><h2>${esc(s.name)} 結算</h2>
+    <p class="muted small">結餘 = 已繳 − 出席次數 × ${fee()} − 球錢（＋上季結轉）。季費會員的結餘就是「剩餘次數的錢 − 球錢」。續約的人結餘會帶到下一季折抵；勾「已結清」代表已經現金收／退完，不再帶過去。</p>
+    <div class="totals"><div><h3>要退</h3><span class="bal pos">${money(refund)}</span></div><div><h3>要收</h3><span class="bal neg">${money(collect)}</span></div><div><h3>帶到下季折抵</h3><span class="bal">${signed(carryOn)}</span></div></div>
+    <div>${rows||'<p class="muted">這一季還沒有資料。</p>'}</div></section>
+  <section class="card"><h2>開新的一季</h2>${ui.ns?nsForm(s):`<p class="muted small">建立下一季的日期和季費會員。沒勾「已結清」的人，結餘會自動帶過去。</p><button class="btn pri" data-act="newSeason" style="align-self:flex-start">開始設定下一季</button>`}</section>
+  <details class="card"><summary>費用設定與後端</summary><div class="pform">
+    ${[['court','場地費（每次）'],['cap','每次預計人數'],['fee','每人每次'],['bucketPrice','一桶球價錢'],['perBucket','一桶幾顆']].map(([k,l])=>`<label>${l}<input type="number" inputmode="numeric" id="set-${k}" data-ch="set" data-k="${k}" value="${state.settings[k]}"></label>`).join('')}
+  </div><p class="muted small">改了會重新計算所有季的金額。</p>
+  <div class="row-btns"><button class="btn sm" data-act="copy">複製備份資料</button><button class="btn sm warn ghost" data-act="logout">清除本機登入設定</button></div></details>`;
+}
+function nsDefaults(s){
+  let start=today();if(s&&s.dates.length){start=addDays(s.dates[s.dates.length-1],1);while(dt(start).getUTCDay()!==1)start=addDays(start,1)}
+  const members=s?s.members.filter(id=>(s.settle[id]||{}).renew!==false):[];
+  return {start,count:12,members,name:'',skip:[]};
+}
+function nsForm(s){
+  if(!ui.ns)ui.ns=nsDefaults(s);const N=ui.ns;if(!N.skip)N.skip=[];
+  const skipSet=new Set(N.skip);const dates=genDatesSkip(N.start,+N.count||0,skipSet);const cap=state.settings.cap;
+  const cand=s?calc(s).ids:[];const pool=[...new Set([...cand,...N.members])];
+  return `<div class="pform" style="padding-top:0">
+    <label>第一次打球<input type="date" id="ns-start" data-ch="ns" data-k="start" value="${N.start}"></label>
+    <label>總共幾次（每週一次）<input type="number" inputmode="numeric" id="ns-count" data-ch="ns" data-k="count" value="${N.count}"></label>
+    <label>名稱<input type="text" id="ns-name" data-ch="ns" data-k="name" value="${esc(N.name)}" placeholder="${esc(seasonName(dates))}"></label>
+  </div>
+  <p class="small">每週${dates.length?wd(dates[0]):''}，${dates.length?md(dates[0])+' – '+md(dates[dates.length-1]):''}，共 ${dates.length} 次。季費每人 <b>${money(dates.length*state.settings.court/cap)}</b>（${money(state.settings.court)} × ${dates.length} ÷ ${cap}）。</p>
+  <div><h3>日期（點一下可跳過該週，例如國定假日）</h3><div class="chips" style="margin-top:6px">${dates.map(d=>`<button type="button" class="chip" data-act="nsSkip" data-d="${d}">${md(d)}（週${wd(d)}）</button>`).join('')}</div></div>
+  ${N.skip.length?`<div><h3>已跳過</h3><div class="chips" style="margin-top:6px">${N.skip.slice().sort().map(d=>`<button type="button" class="chip" style="border-style:solid;background:var(--warn-soft);color:var(--warn);border-color:transparent" data-act="nsUnskip" data-d="${d}">${md(d)}（週${wd(d)}）✕</button>`).join('')}</div></div>`:''}
+  ${pool.length?`<div><h3>季費會員 ${N.members.length}/${cap}</h3><div class="chips" style="margin-top:6px">${pool.map(id=>`<label class="chip" style="border-style:solid;${N.members.includes(id)?'background:var(--court-soft);color:var(--court);border-color:var(--court)':''}"><input type="checkbox" data-ch="nsMem" data-id="${id}" ${N.members.includes(id)?'checked':''} style="margin:0 4px 0 0">${esc(pname(id))}</label>`).join('')}</div><p class="muted small" style="margin-top:6px">新會員可以開季之後在「成員」加入。</p></div>`:''}
+  <div class="row-btns"><button class="btn pri" data-act="createSeason">建立這一季</button>${s?'<button class="btn ghost" data-act="cancelNs">取消</button>':''}</div>`;
+}
+
+function render(){
+  const app=$('#app');
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===ui.tab));
+  $('#tabs').hidden=!(state&&state.seasons.length);
+  if(!loaded){app.innerHTML=`<div class="loading">載入中…</div>`;return}
+  if(!state||!state.seasons.length){if(!state)state=normalize({});app.innerHTML=`<div class="wrap">${header(null)}${vEmpty()}</div>`;return}
+  const s=S();
+  const v={session:vSession,grid:vGrid,people:vPeople,balls:vBalls,settle:vSettle}[ui.tab]||vSession;
+  app.innerHTML=`<div class="wrap">${header(s)}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
+}
+
+/* ---------- actions ---------- */
+function doParse(s){
+  const main=[],backup=[];let date=null;const seen=new Set();
+  const clean=t=>t.replace(/^[\s.．、:：)\-]+/,'').trim();
+  for(const raw of ui.lineText.split(/\r?\n/)){const L=raw.trim();if(!L)continue;let m;
+    if((m=L.match(/^備\s*(\d{1,2})\s*[.．、:：)\-]?\s*(.*)$/))){const nm=clean(m[2]);if(nm&&nm!=='名字'&&!seen.has(norm(nm))){seen.add(norm(nm));backup.push(nm)}continue}
+    if((m=L.match(/^(\d{1,2})\s*[.．、)]\s*(.*)$/))){const nm=clean(m[2]);if(nm&&nm!=='名字'&&!seen.has(norm(nm))){seen.add(norm(nm));main.push(nm)}continue}
+    if(!date&&(m=L.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/)))date={m:+m[1],d:+m[2]};
+  }
+  let key=null;
+  if(date){key=s.dates.find(x=>{const p=x.split('-');return +p[1]===date.m&&+p[2]===date.d});
+    if(!key){const base=s.dates[0]?dt(s.dates[0]):new Date();let y=base.getUTCFullYear();if(s.dates[0]&&date.m<base.getUTCMonth()+1-6)y++;key=`${y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`}}
+  const mk=nm=>{const p=findPerson(nm);return {name:nm,pid:p?p.id:null,choice:'new'}};
+  ui.parse={date:key||pickDate(s),main:main.map(mk),backup:backup.map(mk)};
+}
+function resolveRow(r){if(r.pid)return r.pid;if(r.choice==='skip')return null;
+  if(r.choice==='new'){const p=findOrCreate(r.name);return p.id}
+  const p=state.people.find(q=>q.id===r.choice);if(!p)return null;
+  if(norm(p.name)!==norm(r.name)&&!(p.aliases||[]).some(a=>norm(a)===norm(r.name)))p.aliases=[...(p.aliases||[]),r.name];return p.id}
+function doApply(s){const P=ui.parse;const d=P.date;
+  if(!s.dates.includes(d)){s.dates.push(d);s.dates.sort()}
+  const x=sess(s,d);const att={};
+  P.main.forEach(r=>{const id=resolveRow(r);if(id&&!att[id])att[id]=x.att[id]||(isMember(s,id)?{}:{paid:0})});
+  x.att=att;x.backup=P.backup.map(resolveRow).filter(id=>id&&!att[id]);
+  ui.date=d;ui.parse=null;ui.lineText='';save(`已設定 ${md(d)} 出席 ${Object.keys(att).length} 人`);
+}
+function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
+  if(isMember(s,id)){if(a)delete x.att[id];else x.att[id]={}}
+  else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
+  save()}
+function act(a,el){
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);return}
+  const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
+  switch(a){
+    case 'date':ui.date=el.dataset.d;ui.tab='session';render();window.scrollTo(0,0);break;
+    case 'parse':doParse(s);render();break;
+    case 'cancelParse':ui.parse=null;render();break;
+    case 'apply':doApply(s);break;
+    case 'rm':{const x=sess(s,ui.date);delete x.att[id];save();break}
+    case 'add':{const x=sess(s,ui.date);if(!x.att[id])x.att[id]=isMember(s,id)?{}:{paid:0};save();break}
+    case 'pay':{const x=sess(s,ui.date);const t=x.att[id];t.paid=(t.paid||0)>=fee()?0:fee();save();break}
+    case 'payAll':{const x=sess(s,ui.date);for(const k in x.att)if(!isMember(s,k)&&(x.att[k].paid||0)<fee())x.att[k].paid=fee();save('臨打都記為已收');break}
+    case 'ball':{const x=sess(s,ui.date);x.balls=Math.max(0,(x.balls||0)+(+el.dataset.v));save();break}
+    case 'addGuest':{const nm=$('#guestName').value.trim();if(!nm)return;const p=findOrCreate(nm);const x=sess(s,ui.date);if(!x.att[p.id])x.att[p.id]=isMember(s,p.id)?{}:{paid:0};save(`已加入 ${p.name}`);break}
+    case 'delDate':{const d=el.dataset.d;s.dates=s.dates.filter(x=>x!==d);delete s.sessions[d];ui.date=null;save(`已移除 ${md(d)}`);break}
+    case 'cell':cycleCell(s,id,el.dataset.d);break;
+    case 'open':ui.open=ui.open===id?null:id;render();break;
+    case 'feeFull':{const o=calc(s).out[id];s.feePaid[id]=(s.feePaid[id]||0)+o.due;save(`${pname(id)} 季費已繳清`);break}
+    case 'delPerson':{const used=state.seasons.some(x=>x.members.includes(id)&&x.id!==s.id||Object.values(x.sessions).some(q=>q.att&&q.att[id]));if(used){toast('這個人在其他季有紀錄，不能刪除');return}
+      s.members=s.members.filter(x=>x!==id);state.people=state.people.filter(p=>p.id!==id);ui.open=null;save('已刪除');break}
+    case 'mkMember':{if(!s.members.includes(id))s.members.push(id);save(`${pname(id)} 設為季費會員`);break}
+    case 'newPerson':{const nm=$('#newName').value.trim();if(!nm)return;if(findPerson(nm)){toast('已經有這個人了');return}const p=findOrCreate(nm);if($('#newRole').value==='m')s.members.push(p.id);save(`已新增 ${nm}`);break}
+    case 'addPurchase':{const n=+$('#buyN').value,pr=+$('#buyP').value,d=$('#buyDate').value||today();if(!(n>0))return;s.purchases.push({date:d,buckets:n,price:pr||state.settings.bucketPrice});s.purchases.sort((a,b)=>a.date<b.date?-1:1);save('已記錄');break}
+    case 'delPurchase':s.purchases.splice(+el.dataset.i,1);save();break;
+    case 'renew':{s.settle[id]={...(s.settle[id]||{}),renew:el.dataset.v==='1'};save();break}
+    case 'newSeason':ui.ns=nsDefaults(s);render();break;
+    case 'cancelNs':ui.ns=null;render();break;
+    case 'nsSkip':{if(!ui.ns.skip)ui.ns.skip=[];if(!ui.ns.skip.includes(el.dataset.d))ui.ns.skip.push(el.dataset.d);render();break}
+    case 'nsUnskip':{ui.ns.skip=(ui.ns.skip||[]).filter(x=>x!==el.dataset.d);render();break}
+    case 'createSeason':createSeason(s);break;
+    case 'copy':{const t=JSON.stringify(state);navigator.clipboard.writeText(t).then(()=>toast('已複製，可貼到記事本保存'),()=>toast('這個畫面不能複製'));break}
+    case 'logout':{try{localStorage.removeItem('bm_cfg')}catch(e){}location.reload();break}
+  }
+}
+function createSeason(old){const N=ui.ns;const n=+N.count;if(!N.start||!(n>0)){toast('請填第一次打球日期和次數');return}
+  const dates=genDatesSkip(N.start,n,new Set(N.skip||[]));const ns={id:uid(),name:N.name.trim()||seasonName(dates),closed:false,dates,members:[...N.members],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{}};
+  ns.members.forEach(id=>ns.memberFee[id]=dates.length*state.settings.court/state.settings.cap);
+  if(old){const {ids,out}=calc(old);ids.forEach(id=>{const st=old.settle[id]||{};const b=Math.round(out[id].balance);if(!st.done&&b!==0)ns.carry[id]=b});old.closed=true}
+  state.seasons.push(ns);state.cur=ns.id;ui.ns=null;ui.date=null;ui.tab='people';save('新的一季建立好了');window.scrollTo(0,0)}
+function change(el){
+  const k=el.dataset.ch;const s=state&&state.seasons.length?S():null;const id=el.dataset.id;const num=()=>Math.round(+el.value||0);
+  switch(k){
+    case 'season':state.cur=el.value;ui.date=null;ui.ns=null;render();save();break;
+    case 'amt':{const x=sess(s,ui.date);if(x.att[id]){x.att[id].paid=Math.max(0,num());save()}break}
+    case 'addDate':{const d=el.value;if(d&&!s.dates.includes(d)){s.dates.push(d);s.dates.sort();ui.date=d;save(`已加入 ${md(d)}`)}break}
+    case 'pdate':ui.parse.date=el.value;break;
+    case 'pchoice':ui.parse[el.dataset.list][+el.dataset.i].choice=el.value;break;
+    case 'pname':{const v=el.value.trim();if(v){person(id).name=v;save()}break}
+    case 'palias':person(id).aliases=el.value.split(/[,，、]/).map(t=>t.trim()).filter(Boolean);save();break;
+    case 'prole':{if(el.value==='m'){if(!s.members.includes(id))s.members.push(id);for(const d in s.sessions){const a=s.sessions[d].att?.[id];if(a)s.sessions[d].att[id]={}}}else s.members=s.members.filter(x=>x!==id);save();break}
+    case 'pfee':s.memberFee[id]=num();save();break;
+    case 'ppaid':s.feePaid[id]=num();save();break;
+    case 'pcarry':{const v=num();if(v)s.carry[id]=v;else delete s.carry[id];save();break}
+    case 'done':s.settle[id]={...(s.settle[id]||{}),done:el.checked};save();break;
+    case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;save()}break}
+    case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
+    case 'nsMem':{const m=ui.ns.members;if(el.checked){if(!m.includes(id))m.push(id)}else ui.ns.members=m.filter(x=>x!==id);render();break}
+  }
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b&&!(b.tagName==='LABEL')){act(b.dataset.act,b)}});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[role=button][data-act]')){e.preventDefault();act(e.target.dataset.act,e.target)}
+  if(e.key==='Enter'&&e.target.id==='guestName')act('addGuest',e.target);if(e.key==='Enter'&&e.target.id==='newName')act('newPerson',e.target)});
+document.addEventListener('change',e=>{const el=e.target.closest('[data-ch]');if(el)change(el)});
+document.addEventListener('input',e=>{if(e.target.dataset.in==='line')ui.lineText=e.target.value});
+
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./service-worker.js').catch(()=>{})})}
+boot();
+</script>
+</body>
+</html>
