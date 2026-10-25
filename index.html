@@ -348,6 +348,7 @@ async function boot(){
     const j=await apiGet(CFG.url,CFG.pw);
     state=normalize(j.data);version=j.version;loaded=true;mode='cloud';cacheState();startPolling();render();
   }catch(err){
+    if(err.kind==='api'&&err.error==='bad_password'){renderGate('密碼和後端設定的不一樣，請重新輸入');return}
     const c=loadCache();
     if(c){state=normalize(c.state);version=c.version;loaded=true;mode='offline';render();setSync('離線中，顯示上次同步的資料');startPolling()}
     else if(err.kind==='api'&&err.error==='bad_password')renderGate('密碼錯誤，請重新輸入');
