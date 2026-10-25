@@ -155,6 +155,9 @@ nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:
 @media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}}
 
 /* gate / loading */
+#crash{min-height:100svh;padding:24px max(16px,env(safe-area-inset-left,0px));background:var(--bg);color:var(--ink);display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+#crash h1{font-size:17px;color:var(--warn)}
+#crash pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--chip);padding:10px;border-radius:8px;max-height:40vh;overflow:auto;width:100%}
 #gate{min-height:100svh;display:flex;align-items:center;justify-content:center;padding:24px max(16px,env(safe-area-inset-left,0px)) 24px max(16px,env(safe-area-inset-right,0px))}
 .gatecard{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:14px}
 .gatecard h1{font-size:20px}
@@ -166,6 +169,7 @@ nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:
 </head>
 <body>
 <div id="gate" hidden></div>
+<div id="crash" hidden></div>
 <div id="app"></div>
 <nav id="tabs" hidden><div class="in">
   <button data-act="tab" data-v="session">本週</button>
@@ -513,15 +517,31 @@ function nsForm(s){
   <div class="row-btns"><button class="btn pri" data-act="createSeason">建立這一季</button>${s?'<button class="btn ghost" data-act="cancelNs">取消</button>':''}</div>`;
 }
 
+function showCrash(msg){
+  try{
+    $('#gate').hidden=true;$('#app').innerHTML='';$('#tabs').hidden=true;
+    const c=$('#crash');c.hidden=false;
+    c.innerHTML=`<h1>畫面出了點問題</h1><p class="small muted">把下面這段文字截圖或複製傳給我，我就能看出原因。你的資料沒有不見，存在雲端。</p><pre>${esc(msg)}</pre><button class="btn pri" id="crash-reload">重新整理</button><button class="btn ghost" id="crash-copy">複製錯誤訊息</button>`;
+    const r=document.getElementById('crash-reload');if(r)r.addEventListener('click',()=>location.reload());
+    const cp=document.getElementById('crash-copy');if(cp)cp.addEventListener('click',()=>{navigator.clipboard&&navigator.clipboard.writeText(msg).catch(()=>{})});
+  }catch(e){}
+}
+window.addEventListener('error',e=>{showCrash((e.message||'錯誤')+'\n'+(e.filename||'')+':'+(e.lineno||'')+'\n'+((e.error&&e.error.stack)||''))});
+window.addEventListener('unhandledrejection',e=>{const r=e.reason;showCrash('Promise 錯誤: '+(r&&(r.stack||r.message||JSON.stringify(r))||String(r)))});
+
 function render(){
-  const app=$('#app');
-  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===ui.tab));
-  $('#tabs').hidden=!(state&&state.seasons.length);
-  if(!loaded){app.innerHTML=`<div class="loading">載入中…</div>`;return}
-  if(!state||!state.seasons.length){if(!state)state=normalize({});app.innerHTML=`<div class="wrap">${header(null)}${vEmpty()}</div>`;return}
-  const s=S();
-  const v={session:vSession,grid:vGrid,people:vPeople,balls:vBalls,settle:vSettle}[ui.tab]||vSession;
-  app.innerHTML=`<div class="wrap">${header(s)}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
+  try{
+    const app=$('#app');
+    document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===ui.tab));
+    $('#tabs').hidden=!(state&&state.seasons.length);
+    if(!loaded){app.innerHTML=`<div class="loading">載入中…</div>`;return}
+    if(!state||!state.seasons.length){if(!state)state=normalize({});app.innerHTML=`<div class="wrap">${header(null)}${vEmpty()}</div>`;return}
+    const s=S();
+    const v={session:vSession,grid:vGrid,people:vPeople,balls:vBalls,settle:vSettle}[ui.tab]||vSession;
+    app.innerHTML=`<div class="wrap">${header(s)}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
+  }catch(err){
+    showCrash((err&&err.stack)||String(err));
+  }
 }
 
 /* ---------- actions ---------- */

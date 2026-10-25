@@ -1,4 +1,4 @@
-const CACHE = 'bm-cache-v1';
+const CACHE = 'bm-cache-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -13,24 +13,22 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Only handle same-origin GET requests (the app shell). Calls to the
-// Google Apps Script backend are a different origin and always go
-// straight to the network, never through this cache.
+// Network-first for the app shell so a new deploy is picked up on the very
+// next load instead of waiting behind a stale cached copy; falls back to
+// the cache only when offline. Calls to the Google Apps Script backend are
+// a different origin and always go straight to the network, untouched.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
 
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => cached || caches.match('./index.html'));
-      return cached || network;
-    })
+    fetch(e.request).then(res => {
+      if (res && res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
   );
 });
