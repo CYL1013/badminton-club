@@ -97,6 +97,9 @@ ul.list li:first-child{border-top:0}
 input.amt{width:4.6em;text-align:right;padding:4px 6px}
 .x{border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;padding:2px 6px}
 
+.hol{color:var(--cork);margin-left:4px;font-size:11px}
+.chip.skipped{border-style:solid;background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.chip.skipped .hol{color:inherit}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{border:1px dashed var(--line);background:transparent;border-radius:99px;padding:4px 11px;font-size:13px}
 .chip:hover{border-color:var(--court);color:var(--court)}
@@ -185,7 +188,7 @@ nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:
 const DEF={court:800,cap:8,fee:100,bucketPrice:600,perBucket:12};
 let state=null, loaded=false, version=null, mode='loading';
 let CFG=null;try{const t=localStorage.getItem('bm_cfg');CFG=t?JSON.parse(t):null}catch(e){CFG=null}
-const ui={tab:'session',date:null,lineText:'',parse:null,open:null,ns:null};
+const ui={tab:'session',date:null,lineText:'',parse:null,open:null,ns:null,qd:null,centerDate:true,sm:'full'};
 try{ui.tab=localStorage.getItem('bm_tab')||'session'}catch(e){}
 
 /* ---------- helpers ---------- */
@@ -223,8 +226,9 @@ function calc(s){
   state.people.forEach(p=>{if(s.dates.some(d=>getSess(s,d).att?.[p.id])||s.carry[p.id])addId(p.id)});
   for(const d of s.dates){const x=getSess(s,d);const sh=share(s,d);for(const id in (x.att||{})){addId(id);const o=out[id];o.att++;o.ball+=sh;if(!o.member){const p=x.att[id].paid||0;o.paid+=p;if(p<fee())o.unpaid+=fee()-p}}}
   for(const id of ids){const o=out[id];o.carry=s.carry[id]||0;
-    if(o.member){o.fee=memberFee(s,id);o.feePaid=s.feePaid[id]||0;o.slots=Math.round(o.fee/fee());o.remain=o.slots-o.att;o.due=Math.max(0,o.fee-o.carry-o.feePaid);o.balance=o.carry+o.feePaid-o.att*fee()-o.ball}
-    else{o.balance=o.carry+o.paid-o.att*fee()-o.ball}}
+    o.ballPaid=!!(s.settle&&s.settle[id]&&s.settle[id].ballPaid);const ballOwed=o.ballPaid?0:o.ball;
+    if(o.member){o.fee=memberFee(s,id);o.feePaid=s.feePaid[id]||0;o.slots=Math.round(o.fee/fee());o.remain=o.slots-o.att;o.due=Math.max(0,o.fee-o.carry-o.feePaid);o.balance=o.carry+o.feePaid-o.att*fee()-ballOwed}
+    else{o.balance=o.carry+o.paid-o.att*fee()-ballOwed}}
   return {ids,out};
 }
 function findPerson(nm){const k=norm(nm);return state.people.find(p=>norm(p.name)===k||(p.aliases||[]).some(a=>norm(a)===k))}
@@ -232,6 +236,72 @@ function findOrCreate(nm){let p=findPerson(nm);if(!p){p={id:uid(),name:nm.trim()
 function pickDate(s){if(ui.date&&s.dates.includes(ui.date))return ui.date;const t=today();ui.date=s.dates.find(d=>d>=t)||s.dates[s.dates.length-1]||null;return ui.date}
 function genDates(start,n){const a=[];for(let i=0;i<n;i++)a.push(addDays(start,i*7));return a}
 function genDatesSkip(start,n,skipSet){const a=[];let d=start,guard=0;while(a.length<n&&guard<300){if(!skipSet.has(d))a.push(d);d=addDays(d,7);guard++}return a}
+
+/* ---------- Taiwan holidays (hints only: 調整放假/補班 still need a human check) ---------- */
+const HOL_FIXED={'01-01':'元旦','02-28':'和平紀念日','04-04':'兒童節','04-05':'清明節','05-01':'勞動節','09-28':'教師節','10-10':'國慶日','10-25':'光復節','12-25':'行憲紀念日'};
+let _lunarFmt=null;
+function lunarOf(d){
+  try{
+    if(!_lunarFmt)_lunarFmt=new Intl.DateTimeFormat('en-u-ca-chinese',{month:'numeric',day:'numeric',timeZone:'UTC'});
+    const p=_lunarFmt.formatToParts(new Date(d+'T12:00:00Z'));
+    const m=p.find(x=>x.type==='month'),dd=p.find(x=>x.type==='day');
+    if(!m||!dd)return null;
+    return {m:parseInt(m.value,10),d:parseInt(dd.value,10),leap:!/^\d+$/.test(m.value)};
+  }catch(e){return null}
+}
+function baseHoliday(d){
+  const fx=HOL_FIXED[d.slice(5)];if(fx)return fx;
+  const L=lunarOf(d);if(!L||L.leap)return null;
+  if(L.m===1&&L.d<=3)return '春節';
+  if(L.m===5&&L.d===5)return '端午節';
+  if(L.m===8&&L.d===15)return '中秋節';
+  const nx=lunarOf(addDays(d,1));if(nx&&!nx.leap&&nx.m===1&&nx.d===1)return '除夕';
+  return null;
+}
+function holidayName(d){
+  const b=baseHoliday(d);if(b)return b;
+  const dow=dt(d).getUTCDay();
+  if(dow===1){const p=baseHoliday(addDays(d,-1));if(p&&dt(addDays(d,-1)).getUTCDay()===0)return p+'補假'}
+  if(dow===5){const n=baseHoliday(addDays(d,1));if(n&&dt(addDays(d,1)).getUTCDay()===6)return n+'補假'}
+  return null;
+}
+
+/* ---------- date planner: first day + (count | last day), weekly, with holiday skipping ---------- */
+function planNew(base){return Object.assign({start:'',mode:'count',count:12,end:'',skip:[],keep:[],autoHol:true},base||{})}
+function planCalc(P){
+  const dates=[],skipped=[];
+  if(!P||!P.start)return {dates,skipped};
+  const skipSet=new Set(P.skip||[]),keepSet=new Set(P.keep||[]);
+  const n=Math.max(0,Math.floor(+P.count||0));
+  let d=P.start,guard=0;
+  while(guard<150){
+    if(P.mode==='end'){if(!P.end||d>P.end)break}else if(dates.length>=n)break;
+    const hol=holidayName(d);
+    if(skipSet.has(d))skipped.push({d,why:hol||'手動跳過',manual:true});
+    else if(P.autoHol&&hol&&!keepSet.has(d))skipped.push({d,why:hol,manual:false});
+    else dates.push(d);
+    d=addDays(d,7);guard++;
+  }
+  return {dates,skipped};
+}
+function planOf(kind){return kind==='qd'?ui.qd:ui.ns}
+function planHtml(P,kind){
+  const {dates,skipped}=planCalc(P);
+  const k=`data-kind="${kind}"`;
+  const chip=d=>{const h=holidayName(d);return `<button type="button" class="chip" data-act="planSkip" ${k} data-d="${d}">${md(d)}（週${wd(d)}）${h?`<small class="hol">${esc(h)}</small>`:''}</button>`};
+  return `<div class="pform" style="padding-top:0">
+    <label>第一天<input type="date" id="plan-start-${kind}" data-ch="plan" ${k} data-k="start" value="${esc(P.start)}"></label>
+    ${P.mode==='end'
+      ?`<label>最後一天<input type="date" id="plan-end-${kind}" data-ch="plan" ${k} data-k="end" value="${esc(P.end)}"></label>`
+      :`<label>總共幾次（每週一次）<input type="number" inputmode="numeric" id="plan-count-${kind}" data-ch="plan" ${k} data-k="count" value="${esc(P.count)}"></label>`}
+  </div>
+  <div class="row-btns"><span class="seg"><button type="button" class="${P.mode==='count'?'on':''}" data-act="planMode" ${k} data-v="count">指定次數</button><button type="button" class="${P.mode==='end'?'on':''}" data-act="planMode" ${k} data-v="end">指定最後一天</button></span>
+    <label class="ck"><input type="checkbox" id="plan-auto-${kind}" data-ch="planAuto" ${k} ${P.autoHol?'checked':''}>自動跳過國定假日</label></div>
+  <p class="small">${dates.length?`每週${wd(dates[0])}，${md(dates[0])} – ${md(dates[dates.length-1])}，共 <b>${dates.length}</b> 次。`:'還沒有日期，請選第一天。'}</p>
+  ${dates.length?`<div><h3>要打的日期（點一下可跳過該週）</h3><div class="chips" style="margin-top:6px">${dates.map(chip).join('')}</div></div>`:''}
+  ${skipped.length?`<div><h3>已跳過（點一下可恢復）</h3><div class="chips" style="margin-top:6px">${skipped.map(x=>`<button type="button" class="chip skipped" data-act="planUnskip" ${k} data-d="${x.d}">${md(x.d)}（週${wd(x.d)}）<small class="hol">${esc(x.why)}</small> ✕</button>`).join('')}</div></div>`:''}
+  <p class="muted small">假日只是依日曆推算的提示，補班或調整放假要自己再確認一下。</p>`;
+}
 function seasonName(dates){if(!dates.length)return '新的一季';const a=dt(dates[0]),b=dt(dates[dates.length-1]);const y1=a.getUTCFullYear(),y2=b.getUTCFullYear();return `${y1}/${a.getUTCMonth()+1} – ${y2!==y1?y2+'/':''}${b.getUTCMonth()+1}月（週${wd(dates[0])}）`}
 
 /* ---------- backend (Google Apps Script) ----------
@@ -278,9 +348,16 @@ async function apiGet(url,pw){
 }
 async function apiSet(data,expectedVersion){
   await formSubmit(CFG.url,{action:'set',token:CFG.pw,data:JSON.stringify(data),expectedVersion:expectedVersion==null?'':String(expectedVersion)});
-  await new Promise(r=>setTimeout(r,900));
-  const j=await apiGet(CFG.url,CFG.pw);
-  if(j.version>(expectedVersion==null?-1:expectedVersion))return {ok:true,version:j.version};
+  const base=expectedVersion==null?-1:expectedVersion;
+  let j=null;
+  // We can't read the form response, so check the server a few times to see whether the write landed.
+  for(const wait of [900,1500,2500]){
+    await new Promise(r=>setTimeout(r,wait));
+    j=await apiGet(CFG.url,CFG.pw);
+    if(j.version>base)break;
+  }
+  if(j.version<=base)return {ok:false,error:'notlanded',version:j.version};
+  if(JSON.stringify(j.data)===JSON.stringify(data))return {ok:true,version:j.version};
   return {ok:false,error:'conflict',data:j.data,version:j.version};
 }
 function cacheState(){try{localStorage.setItem('bm_cache',JSON.stringify({state,version}))}catch(e){}}
@@ -322,24 +399,36 @@ let writing=false,dirty=false,timer=null,pollTimer=null;
 function setSync(t){const el=$('#sync');if(el)el.textContent=t}
 function save(msg){render();if(msg)toast(msg);
   dirty=true;clearTimeout(timer);timer=setTimeout(flush,350);setSync('儲存中…')}
-async function flush(){if(writing||!dirty)return;writing=true;dirty=false;
-  const snapshot=JSON.parse(JSON.stringify(state));
+async function flush(){
+  if(writing)return;
+  writing=true;
   try{
-    const j=await apiSet(snapshot,version);
-    if(j.ok){version=j.version;setSync('已存到雲端');cacheState()}
-    else if(j.error==='conflict'){state=normalize(j.data);version=j.version;cacheState();setSync('已存到雲端');toast('資料在別的裝置被更新了，已重新整理，請確認剛剛的修改還在');render()}
-  }catch(e){
-    dirty=true;
-    if(e.kind==='api'&&e.error==='bad_password')setSync('密碼不對，請在「結算」清除登入設定重新輸入');
-    else{setSync('離線中，稍後自動重試');setTimeout(flush,2500+Math.random()*1500)}
-  }
-  writing=false;if(dirty&&!(timer))flush()}
+    // keep going until nothing is left unsaved, so taps made while a save is in flight are not dropped
+    while(dirty){
+      dirty=false;
+      const snapshot=JSON.parse(JSON.stringify(state));
+      let j;
+      try{j=await apiSet(snapshot,version)}
+      catch(e){
+        dirty=true;
+        if(e&&e.kind==='api'&&e.error==='bad_password'){setSync('密碼不對，請在「結算」清除登入設定重新輸入');return}
+        setSync('離線中，稍後自動重試');
+        setTimeout(flush,3000+Math.random()*1500);
+        return;
+      }
+      if(j.ok){version=j.version;cacheState();setSync(dirty?'儲存中…':'已存到雲端')}
+      else if(j.error==='conflict'){state=normalize(j.data);version=j.version;dirty=false;cacheState();setSync('已存到雲端');toast('資料在別的裝置被更新了，已重新整理，請確認剛剛的修改還在');render()}
+      else{dirty=true;setSync('儲存沒成功，稍後自動重試');setTimeout(flush,4000);return}
+    }
+  }finally{writing=false}
+}
 function startPolling(){clearInterval(pollTimer);pollTimer=setInterval(pollRefresh,25000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pollRefresh()});
   window.addEventListener('online',()=>{setSync('連線恢復');if(dirty)flush();else pollRefresh()});
   window.addEventListener('offline',()=>setSync('離線中'))}
 async function pollRefresh(){if(!CFG||writing||dirty)return;
-  try{const j=await apiGet(CFG.url,CFG.pw);if(j.ok&&j.version!==version){state=normalize(j.data);version=j.version;cacheState();render();setSync('已存到雲端')}}
+  try{const j=await apiGet(CFG.url,CFG.pw);
+    if(j.ok&&(j.version!==version||mode==='offline')){mode='cloud';state=normalize(j.data);version=j.version;cacheState();render();setSync('已存到雲端')}}
   catch(e){}}
 async function boot(){
   if(!CFG){renderGate();return}
@@ -366,8 +455,8 @@ function vEmpty(){return `<div class="card"><h2>還沒有任何一季</h2><p cla
 
 function vSession(s){
   const d=pickDate(s);
-  const strip=`<div class="dates" role="tablist">${s.dates.map(x=>{const has=Object.keys(getSess(s,x).att||{}).length;return `<button class="dchip ${x===d?'on':''} ${has?'has':''}" data-act="date" data-d="${x}"><span class="num">${md(x)}</span><small>週${wd(x)}</small></button>`}).join('')}<label class="dchip" style="cursor:pointer"><span class="num">＋</span><small>加日期</small><input type="date" data-ch="addDate" style="position:absolute;opacity:0;inset:0;width:100%"></label></div>`;
-  if(!d)return strip+`<div class="card"><p class="muted">這一季還沒有日期，按「＋加日期」新增。</p></div>`;
+  const strip=`<div class="dates" role="tablist" data-keep="dates">${s.dates.map(x=>{const has=Object.keys(getSess(s,x).att||{}).length;return `<button class="dchip ${x===d?'on':''} ${has?'has':''}" data-act="date" data-d="${x}"><span class="num">${md(x)}</span><small>週${wd(x)}</small></button>`}).join('')}<button type="button" class="dchip" data-act="qdOpen"><span class="num">＋＋</span><small>快速加入</small></button><label class="dchip" style="cursor:pointer"><span class="num">＋</span><small>加一天</small><input type="date" data-ch="addDate" style="position:absolute;opacity:0;inset:0;width:100%"></label></div>`;
+  if(!d)return strip+qdCard(s)+`<div class="card"><p class="muted">這一季還沒有日期，按「＋＋快速加入」一次排好整季，或「＋加一天」新增單日。</p></div>`;
   const x=getSess(s,d);const ids=Object.keys(x.att||{});
   const mem=ids.filter(id=>isMember(s,id)),gst=ids.filter(id=>!isMember(s,id));
   const cap=state.settings.cap,n=ids.length,inc=income(s,d);
@@ -377,7 +466,7 @@ function vSession(s){
   const sh=share(s,d);
   const rows=[...mem,...gst].map((id,i)=>{const m=isMember(s,id);const p=x.att[id].paid||0;
     return `<li><span class="idx">${i+1}</span><span class="nm">${esc(pname(id))}</span>${m?'<span class="tag m">季費</span>':`<span class="tag">臨打</span><button class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`}<button class="x" data-act="rm" data-id="${id}" aria-label="移除 ${esc(pname(id))}">×</button></li>`}).join('');
-  return `${strip}
+  return `${strip}${qdCard(s)}
   <div class="stats">
     <div class="stat ${n>cap?'extra':''}"><b>${n}<small style="font-size:15px;color:var(--muted)">/${cap}</small></b><span>出席 · 季費${mem.length} 臨打${gst.length}</span></div>
     <div class="stat"><b>${money(inc)}</b><span>場地收入（場地 ${money(state.settings.court)}）</span></div>
@@ -402,6 +491,17 @@ function vSession(s){
   </section>
   ${!n?`<button class="btn ghost warn sm" data-act="delDate" data-d="${d}" style="align-self:flex-start">這天不打，從本季移除 ${md(d)}</button>`:''}`;
 }
+function qdCard(s){
+  if(!ui.qd)return '';
+  const {dates}=planCalc(ui.qd);
+  const fresh=dates.filter(d=>!s.dates.includes(d));
+  const dup=dates.length-fresh.length;
+  return `<section class="card"><h2>快速加入日期</h2>
+    <p class="muted small">選第一天，再選要打幾次或最後一天，中間每週自動排好。</p>
+    ${planHtml(ui.qd,'qd')}
+    ${dup?`<p class="note">其中 ${dup} 天本季已經有了，不會重複加入。</p>`:''}
+    <div class="row-btns"><button type="button" class="btn pri" data-act="qdApply" ${fresh.length?'':'disabled'}>加入 ${fresh.length} 天</button><button type="button" class="btn ghost" data-act="qdClose">取消</button></div></section>`;
+}
 function parsePreview(s){
   const P=ui.parse;
   const opt=(row,list,i)=>row.pid?`<span class="tag ${isMember(s,row.pid)?'m':''}">${isMember(s,row.pid)?'季費':'臨打'}</span><span class="small muted">${norm(pname(row.pid))!==norm(row.name)?'＝'+esc(pname(row.pid)):'✓'}</span>`
@@ -425,7 +525,7 @@ function vGrid(s){
   const row=(id,first)=>{const o=out[id];return `<tr class="${first?'sep':''}"><th class="first" scope="row">${esc(pname(id))}</th>${s.dates.map(d=>cell(id,d)).join('')}<td class="sum">${o.att}</td><td class="sum ${o.member?'':(o.unpaid?'neg':'')}">${o.member?(o.remain+' 次'):(o.unpaid?'欠'+o.unpaid:'—')}</td></tr>`};
   const foot=(label,f)=>`<tr><th class="first">${label}</th>${s.dates.map(d=>`<td class="sum">${f(d)}</td>`).join('')}<td></td><td></td></tr>`;
   return `<div class="legend"><span><i style="background:var(--court-soft)"></i>● 季費出席</span><span><i style="background:var(--good-soft)"></i>臨打已收</span><span><i style="background:var(--warn-soft)"></i>臨打未收</span><span>點格子切換</span></div>
-  <div class="gridwrap"><table class="g"><thead><tr><th class="first">姓名</th>${s.dates.map(d=>`<th class="dh" data-act="date" data-d="${d}">${md(d)}</th>`).join('')}<th>出席</th><th>剩餘／欠</th></tr></thead>
+  <div class="gridwrap" data-keep="grid"><table class="g"><thead><tr><th class="first">姓名</th>${s.dates.map(d=>`<th class="dh" data-act="date" data-d="${d}">${md(d)}</th>`).join('')}<th>出席</th><th>剩餘／欠</th></tr></thead>
   <tbody>${mem.map((id,i)=>row(id,false)).join('')}${gst.map((id,i)=>row(id,i===0)).join('')}</tbody>
   <tfoot>${foot('人數',d=>Object.keys(getSess(s,d).att||{}).length||'')}${foot('用球',d=>getSess(s,d).balls||'')}${foot('每人球錢',d=>share(s,d)||'')}${foot('收入',d=>income(s,d)||'')}</tfoot></table></div>
   <p class="muted small">點日期可以打開那一天。季費會員：點一下出席／取消。臨打：空白 → 已收 ${fee()} → 未收 → 空白。</p>`;
@@ -473,7 +573,7 @@ function vBalls(s){
   <section class="card"><h2>每次用球</h2><ul class="list">${s.dates.filter(d=>Object.keys(getSess(s,d).att||{}).length).map(d=>{const x=getSess(s,d);return `<li><button class="btn sm ghost num" data-act="date" data-d="${d}">${md(d)}</button><span class="nm"><span class="num cork" style="font-size:17px">${x.balls||0}</span> 顆 · ${Object.keys(x.att).length} 人</span><span class="small muted">每人</span><span class="num">${money(share(s,d))}</span></li>`}).join('')||'<li class="muted">還沒有打球紀錄</li>'}</ul>
   <p class="muted small">球錢 = 用球數 × ${money(ballPrice())} ÷ 當天出席人數，無條件進位到整數。一桶 ${money(state.settings.bucketPrice)}／${per} 顆可在「結算」最下面的設定修改。</p></section>`;
 }
-function vSettle(s){
+function vFullSettle(s){
   const {ids,out}=calc(s);let refund=0,collect=0,carryOn=0;
   const rows=ids.map(id=>{const o=out[id];const st=s.settle[id]||{};const b=o.balance;
     let hint='';
@@ -482,8 +582,8 @@ function vSettle(s){
       else hint='還沒決定要不要續約';}
     else hint=b>0?`退給他（或留著下次抵）<b class="pos">${money(b)}</b>`:b<0?`向他收 <b class="neg">${money(-b)}</b>`:'已平';
     if(!st.done){if(o.member&&st.renew===true)carryOn+=b;else if(b>0)refund+=b;else collect+=-b}
-    const figs=o.member?`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已繳 ${money(o.feePaid)} − 場地 ${o.att}×${fee()} − 球錢 ${money(o.ball)} · 剩 ${o.remain} 次`
-      :`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已付 ${money(o.paid)} − 場地 ${o.att}×${fee()} − 球錢 ${money(o.ball)}`;
+    const figs=o.member?`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已繳 ${money(o.feePaid)} − 場地 ${o.att}×${fee()}${o.ballPaid?` · 球錢 ${money(o.ball)} 已另外收`:` − 球錢 ${money(o.ball)}`} · 剩 ${o.remain} 次`
+      :`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已付 ${money(o.paid)} − 場地 ${o.att}×${fee()}${o.ballPaid?` · 球錢 ${money(o.ball)} 已另外收`:` − 球錢 ${money(o.ball)}`}`;
     return `<div class="srow ${st.done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> ${o.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'}</div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
       <div class="figs">${figs}</div>
       <div class="acts">${o.member?`<span class="seg"><button class="${st.renew===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button class="${st.renew===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`:''}<span class="hint">${hint}</span>
@@ -498,23 +598,52 @@ function vSettle(s){
   </div><p class="muted small">改了會重新計算所有季的金額。</p>
   <div class="row-btns"><button class="btn sm" data-act="copy">複製備份資料</button><button class="btn sm warn ghost" data-act="logout">清除本機登入設定</button></div></details>`;
 }
+function vSettle(s){
+  const tog=`<div class="row-btns"><span class="seg"><button type="button" class="${ui.sm!=='ball'?'on':''}" data-act="smode" data-v="full">完整結算</button><button type="button" class="${ui.sm==='ball'?'on':''}" data-act="smode" data-v="ball">只結算球錢</button></span></div>`;
+  return tog+(ui.sm==='ball'?vBallSettle(s):vFullSettle(s));
+}
+function ballRows(s){
+  const {ids,out}=calc(s);
+  return ids.filter(id=>out[id].att>0&&out[id].ball>0).map(id=>({id,name:pname(id),member:out[id].member,att:out[id].att,amt:out[id].ball,paid:out[id].ballPaid}));
+}
+function ballMessage(s){
+  const rows=ballRows(s).filter(r=>!r.paid);
+  const used=s.dates.reduce((a,d)=>a+(getSess(s,d).balls||0),0);
+  if(!rows.length)return `${s.name} 球錢已全部收齊`;
+  return `${s.name} 球錢結算\n共用 ${used} 顆，每顆 ${money(ballPrice())}，依出席人數平分\n`+rows.map(r=>`${r.name} ${money(r.amt)}`).join('\n')+`\n合計 ${money(rows.reduce((a,r)=>a+r.amt,0))}`;
+}
+function vBallSettle(s){
+  const rows=ballRows(s);
+  const used=s.dates.reduce((a,d)=>a+(getSess(s,d).balls||0),0);
+  const total=rows.reduce((a,r)=>a+r.amt,0),got=rows.filter(r=>r.paid).reduce((a,r)=>a+r.amt,0);
+  return `<section class="card"><h2>${esc(s.name)} 球錢結算</h2>
+    <div class="stats">
+      <div class="stat"><b class="cork">${used}</b><span>本季用球（顆）</span></div>
+      <div class="stat"><b>${money(used*ballPrice())}</b><span>球的成本（每顆 ${money(ballPrice())}）</span></div>
+      <div class="stat"><b>${money(total)}</b><span>每人分攤合計（進位後）</span></div>
+      <div class="stat ${total-got>0?'alert':''}"><b>${money(total-got)}</b><span>還沒收</span></div>
+    </div>
+    <p class="muted small">每人球錢＝每次用球數 × 單價 ÷ 當天出席人數（進位），再把他出席的每次加起來。標示「已收」代表你已經收到這筆現金，完整結算裡就不會再從他的結餘扣球錢；沒標示的人，球錢會從結餘扣。</p>
+    ${rows.length?`<div>${rows.map(r=>`<div class="srow ${r.paid?'done':''}"><div><span class="nm">${esc(r.name)}</span> ${r.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'} <span class="muted small">出席 ${r.att} 次</span></div><div class="bal">${money(r.amt)}</div>
+      <div class="acts"><button type="button" class="pay ${r.paid?'ok':'due'}" data-act="ballPaid" data-id="${r.id}">${r.paid?'已收':'未收'}</button></div></div>`).join('')}</div>
+    <div class="row-btns"><button type="button" class="btn sm" data-act="ballAll" data-v="1">全部標示已收</button><button type="button" class="btn sm ghost" data-act="ballAll" data-v="0">全部改回未收</button><button type="button" class="btn sm pri right" data-act="copyBall">複製 LINE 訊息</button></div>`
+    :'<p class="muted">這一季還沒有記錄用球。到「本週」記每次用幾顆球，這裡就會算出每個人的球錢。</p>'}
+  </section>`;
+}
 function nsDefaults(s){
   let start=today();if(s&&s.dates.length){start=addDays(s.dates[s.dates.length-1],1);while(dt(start).getUTCDay()!==1)start=addDays(start,1)}
   const members=s?s.members.filter(id=>(s.settle[id]||{}).renew!==false):[];
-  return {start,count:12,members,name:'',skip:[]};
+  return Object.assign(planNew({start,count:12}),{members,name:''});
 }
 function nsForm(s){
-  if(!ui.ns)ui.ns=nsDefaults(s);const N=ui.ns;if(!N.skip)N.skip=[];
-  const skipSet=new Set(N.skip);const dates=genDatesSkip(N.start,+N.count||0,skipSet);const cap=state.settings.cap;
+  if(!ui.ns)ui.ns=nsDefaults(s);const N=ui.ns;
+  const {dates}=planCalc(N);const cap=state.settings.cap;
   const cand=s?calc(s).ids:[];const pool=[...new Set([...cand,...N.members])];
   return `<div class="pform" style="padding-top:0">
-    <label>第一次打球<input type="date" id="ns-start" data-ch="ns" data-k="start" value="${N.start}"></label>
-    <label>總共幾次（每週一次）<input type="number" inputmode="numeric" id="ns-count" data-ch="ns" data-k="count" value="${N.count}"></label>
     <label>名稱<input type="text" id="ns-name" data-ch="ns" data-k="name" value="${esc(N.name)}" placeholder="${esc(seasonName(dates))}"></label>
   </div>
-  <p class="small">每週${dates.length?wd(dates[0]):''}，${dates.length?md(dates[0])+' – '+md(dates[dates.length-1]):''}，共 ${dates.length} 次。季費每人 <b>${money(dates.length*state.settings.court/cap)}</b>（${money(state.settings.court)} × ${dates.length} ÷ ${cap}）。</p>
-  <div><h3>日期（點一下可跳過該週，例如國定假日）</h3><div class="chips" style="margin-top:6px">${dates.map(d=>`<button type="button" class="chip" data-act="nsSkip" data-d="${d}">${md(d)}（週${wd(d)}）</button>`).join('')}</div></div>
-  ${N.skip.length?`<div><h3>已跳過</h3><div class="chips" style="margin-top:6px">${N.skip.slice().sort().map(d=>`<button type="button" class="chip" style="border-style:solid;background:var(--warn-soft);color:var(--warn);border-color:transparent" data-act="nsUnskip" data-d="${d}">${md(d)}（週${wd(d)}）✕</button>`).join('')}</div></div>`:''}
+  ${planHtml(N,'ns')}
+  <p class="small">季費每人 <b>${money(dates.length*state.settings.court/cap)}</b>（${money(state.settings.court)} × ${dates.length} ÷ ${cap}）。</p>
   ${pool.length?`<div><h3>季費會員 ${N.members.length}/${cap}</h3><div class="chips" style="margin-top:6px">${pool.map(id=>`<label class="chip" style="border-style:solid;${N.members.includes(id)?'background:var(--court-soft);color:var(--court);border-color:var(--court)':''}"><input type="checkbox" data-ch="nsMem" data-id="${id}" ${N.members.includes(id)?'checked':''} style="margin:0 4px 0 0">${esc(pname(id))}</label>`).join('')}</div><p class="muted small" style="margin-top:6px">新會員可以開季之後在「成員」加入。</p></div>`:''}
   <div class="row-btns"><button class="btn pri" data-act="createSeason">建立這一季</button>${s?'<button class="btn ghost" data-act="cancelNs">取消</button>':''}</div>`;
 }
@@ -534,6 +663,10 @@ window.addEventListener('unhandledrejection',e=>{const r=e.reason;showCrash('Pro
 function render(){
   try{
     const app=$('#app');
+    // Re-rendering replaces the DOM, which would snap horizontally scrolled areas
+    // (the attendance table, the date strip) back to the left. Remember and restore them.
+    const keep={};document.querySelectorAll('[data-keep]').forEach(n=>{keep[n.dataset.keep]=n.scrollLeft});
+    const sy=window.scrollY;
     document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===ui.tab));
     $('#tabs').hidden=!(state&&state.seasons.length);
     if(!loaded){app.innerHTML=`<div class="loading">載入中…</div>`;return}
@@ -541,6 +674,10 @@ function render(){
     const s=S();
     const v={session:vSession,grid:vGrid,people:vPeople,balls:vBalls,settle:vSettle}[ui.tab]||vSession;
     app.innerHTML=`<div class="wrap">${header(s)}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
+    document.querySelectorAll('[data-keep]').forEach(n=>{if(keep[n.dataset.keep]!=null)n.scrollLeft=keep[n.dataset.keep]});
+    if(ui.centerDate){ui.centerDate=false;const on=document.querySelector('.dchip.on'),bar=document.querySelector('.dates');
+      if(on&&bar)bar.scrollLeft=on.offsetLeft-(bar.clientWidth-on.offsetWidth)/2}
+    if(typeof sy==='number'&&Math.abs(window.scrollY-sy)>1)window.scrollTo(0,sy);
   }catch(err){
     showCrash((err&&err.stack)||String(err));
   }
@@ -577,10 +714,10 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
 function act(a,el){
-  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);return}
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
-    case 'date':ui.date=el.dataset.d;ui.tab='session';render();window.scrollTo(0,0);break;
+    case 'date':ui.date=el.dataset.d;ui.tab='session';ui.centerDate=true;render();window.scrollTo(0,0);break;
     case 'parse':doParse(s);render();break;
     case 'cancelParse':ui.parse=null;render();break;
     case 'apply':doApply(s);break;
@@ -601,17 +738,31 @@ function act(a,el){
     case 'addPurchase':{const n=+$('#buyN').value,pr=+$('#buyP').value,d=$('#buyDate').value||today();if(!(n>0))return;s.purchases.push({date:d,buckets:n,price:pr||state.settings.bucketPrice});s.purchases.sort((a,b)=>a.date<b.date?-1:1);save('已記錄');break}
     case 'delPurchase':s.purchases.splice(+el.dataset.i,1);save();break;
     case 'renew':{s.settle[id]={...(s.settle[id]||{}),renew:el.dataset.v==='1'};save();break}
+    case 'smode':ui.sm=el.dataset.v;render();window.scrollTo(0,0);break;
+    case 'ballPaid':{const st=s.settle[id]||{};s.settle[id]={...st,ballPaid:!st.ballPaid};save();break}
+    case 'ballAll':{const on=el.dataset.v==='1';ballRows(s).forEach(r=>{const st=s.settle[r.id]||{};s.settle[r.id]={...st,ballPaid:on}});save(on?'都標示為已收':'都改回未收');break}
+    case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'newSeason':ui.ns=nsDefaults(s);render();break;
     case 'cancelNs':ui.ns=null;render();break;
-    case 'nsSkip':{if(!ui.ns.skip)ui.ns.skip=[];if(!ui.ns.skip.includes(el.dataset.d))ui.ns.skip.push(el.dataset.d);render();break}
-    case 'nsUnskip':{ui.ns.skip=(ui.ns.skip||[]).filter(x=>x!==el.dataset.d);render();break}
+    case 'planSkip':{const P=planOf(el.dataset.kind),d=el.dataset.d;if(!P)break;P.keep=(P.keep||[]).filter(x=>x!==d);if(!(P.skip||[]).includes(d))P.skip=[...(P.skip||[]),d];render();break}
+    case 'planUnskip':{const P=planOf(el.dataset.kind),d=el.dataset.d;if(!P)break;
+      if((P.skip||[]).includes(d))P.skip=P.skip.filter(x=>x!==d);
+      if(P.autoHol&&holidayName(d)&&!(P.keep||[]).includes(d))P.keep=[...(P.keep||[]),d];
+      render();break}
+    case 'planMode':{const P=planOf(el.dataset.kind);if(!P)break;P.mode=el.dataset.v;
+      if(P.mode==='end'&&!P.end){const ds=planCalc({...P,mode:'count'}).dates;P.end=ds.length?ds[ds.length-1]:P.start}
+      render();break}
+    case 'qdOpen':{let start=today();if(s&&s.dates.length)start=addDays(s.dates[s.dates.length-1],7);ui.qd=planNew({start});render();break}
+    case 'qdClose':ui.qd=null;render();break;
+    case 'qdApply':{const fresh=planCalc(ui.qd).dates.filter(d=>!s.dates.includes(d));if(!fresh.length)break;
+      s.dates=[...s.dates,...fresh].sort();ui.date=fresh[0];ui.qd=null;ui.centerDate=true;save(`已加入 ${fresh.length} 個日期`);break}
     case 'createSeason':createSeason(s);break;
     case 'copy':{const t=JSON.stringify(state);navigator.clipboard.writeText(t).then(()=>toast('已複製，可貼到記事本保存'),()=>toast('這個畫面不能複製'));break}
     case 'logout':{try{localStorage.removeItem('bm_cfg')}catch(e){}location.reload();break}
   }
 }
-function createSeason(old){const N=ui.ns;const n=+N.count;if(!N.start||!(n>0)){toast('請填第一次打球日期和次數');return}
-  const dates=genDatesSkip(N.start,n,new Set(N.skip||[]));const ns={id:uid(),name:N.name.trim()||seasonName(dates),closed:false,dates,members:[...N.members],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{}};
+function createSeason(old){const N=ui.ns;const dates=planCalc(N).dates;if(!dates.length){toast('請先選好第一天和次數（或最後一天）');return}
+  const ns={id:uid(),name:N.name.trim()||seasonName(dates),closed:false,dates,members:[...N.members],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{}};
   ns.members.forEach(id=>ns.memberFee[id]=dates.length*state.settings.court/state.settings.cap);
   if(old){const {ids,out}=calc(old);ids.forEach(id=>{const st=old.settle[id]||{};const b=Math.round(out[id].balance);if(!st.done&&b!==0)ns.carry[id]=b});old.closed=true}
   state.seasons.push(ns);state.cur=ns.id;ui.ns=null;ui.date=null;ui.tab='people';save('新的一季建立好了');window.scrollTo(0,0)}
@@ -632,6 +783,8 @@ function change(el){
     case 'done':s.settle[id]={...(s.settle[id]||{}),done:el.checked};save();break;
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;save()}break}
     case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
+    case 'plan':{const P=planOf(el.dataset.kind);if(!P)break;P[el.dataset.k]=el.value;render();break}
+    case 'planAuto':{const P=planOf(el.dataset.kind);if(!P)break;P.autoHol=el.checked;if(P.autoHol)P.keep=[];render();break}
     case 'nsMem':{const m=ui.ns.members;if(el.checked){if(!m.includes(id))m.push(id)}else ui.ns.members=m.filter(x=>x!==id);render();break}
   }
 }
