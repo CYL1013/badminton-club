@@ -229,20 +229,54 @@ function genDates(start,n){const a=[];for(let i=0;i<n;i++)a.push(addDays(start,i
 function genDatesSkip(start,n,skipSet){const a=[];let d=start,guard=0;while(a.length<n&&guard<300){if(!skipSet.has(d))a.push(d);d=addDays(d,7);guard++}return a}
 function seasonName(dates){if(!dates.length)return '新的一季';const a=dt(dates[0]),b=dt(dates[dates.length-1]);const y1=a.getUTCFullYear(),y2=b.getUTCFullYear();return `${y1}/${a.getUTCMonth()+1} – ${y2!==y1?y2+'/':''}${b.getUTCMonth()+1}月（週${wd(dates[0])}）`}
 
-/* ---------- backend (Google Apps Script) ---------- */
+/* ---------- backend (Google Apps Script) ----------
+   Cross-origin fetch() to script.google.com hangs indefinitely on some
+   mobile browsers/networks (a known rough edge of this combo), so reads
+   go through JSONP (<script src>, never subject to CORS) and writes go
+   through a hidden auto-submitting form targeting a hidden iframe (a
+   plain form POST, also not subject to CORS). We can't read the iframe's
+   response, so a write is followed by one JSONP read to confirm it took. */
+let jsonpSeq=0;
+function jsonpCall(url,params,timeoutMs){
+  return new Promise((resolve,reject)=>{
+    const cbName='bm_cb_'+(jsonpSeq++)+'_'+Date.now();
+    const qs=Object.entries({...params,callback:cbName}).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+    const script=document.createElement('script');
+    let done=false;
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject({kind:'timeout'})},timeoutMs||15000);
+    function cleanup(){try{delete window[cbName]}catch(e){window[cbName]=undefined}script.remove();clearTimeout(timer)}
+    window[cbName]=data=>{if(done)return;done=true;cleanup();resolve(data)};
+    script.onerror=()=>{if(done)return;done=true;cleanup();reject({kind:'network'})};
+    script.src=url+(url.includes('?')?'&':'?')+qs;
+    document.head.appendChild(script);
+  });
+}
+function formSubmit(url,fields){
+  return new Promise(resolve=>{
+    const frameName='bm_frame_'+Date.now();
+    const ifr=document.createElement('iframe');
+    ifr.name=frameName;ifr.style.display='none';
+    document.body.appendChild(ifr);
+    const form=document.createElement('form');
+    form.method='POST';form.action=url;form.target=frameName;form.style.display='none';
+    Object.entries(fields).forEach(([k,v])=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=v==null?'':String(v);form.appendChild(inp)});
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(()=>{form.remove();resolve()},200);
+    setTimeout(()=>ifr.remove(),4000);
+  });
+}
 async function apiGet(url,pw){
-  const res=await fetch(url+(url.includes('?')?'&':'?')+'action=get&token='+encodeURIComponent(pw));
-  if(!res.ok)throw {kind:'http',status:res.status};
-  let j;try{j=await res.json()}catch(e){throw {kind:'badresponse'}}
-  if(!j.ok)throw {kind:'api',error:j.error};
+  const j=await jsonpCall(url,{action:'get',token:pw});
+  if(!j||!j.ok)throw {kind:'api',error:(j&&j.error)||'unknown'};
   return j;
 }
 async function apiSet(data,expectedVersion){
-  const res=await fetch(CFG.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'set',token:CFG.pw,data,expectedVersion})});
-  if(!res.ok)throw {kind:'http',status:res.status};
-  let j;try{j=await res.json()}catch(e){throw {kind:'badresponse'}}
-  if(!j.ok&&j.error!=='conflict')throw {kind:'api',error:j.error};
-  return j;
+  await formSubmit(CFG.url,{action:'set',token:CFG.pw,data:JSON.stringify(data),expectedVersion:expectedVersion==null?'':String(expectedVersion)});
+  await new Promise(r=>setTimeout(r,900));
+  const j=await apiGet(CFG.url,CFG.pw);
+  if(j.version>(expectedVersion==null?-1:expectedVersion))return {ok:true,version:j.version};
+  return {ok:false,error:'conflict',data:j.data,version:j.version};
 }
 function cacheState(){try{localStorage.setItem('bm_cache',JSON.stringify({state,version}))}catch(e){}}
 function loadCache(){try{const t=localStorage.getItem('bm_cache');return t?JSON.parse(t):null}catch(e){return null}}
