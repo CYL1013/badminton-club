@@ -211,7 +211,9 @@ const pname=id=>person(id).name;
 const isMember=(s,id)=>s.members.includes(id);
 const getSess=(s,d)=>s.sessions[d]||{att:{},backup:[],balls:0};
 function sess(s,d){if(!s.sessions[d])s.sessions[d]={att:{},backup:[],balls:0};const x=s.sessions[d];x.att=x.att||{};x.backup=x.backup||[];x.balls=x.balls||0;return x}
-function share(s,d){const x=getSess(s,d);const n=Object.keys(x.att||{}).length;return n&&x.balls?Math.ceil(x.balls*ballPrice()/n):0}
+function gap(s,d){const n=Object.keys(getSess(s,d).att||{}).length;return n?Math.max(0,state.settings.court-n*fee()):0}
+function extra(s,d){const n=Object.keys(getSess(s,d).att||{}).length;return Math.max(0,n-state.settings.cap)*fee()}
+function share(s,d){const x=getSess(s,d);const n=Object.keys(x.att||{}).length;if(!n)return 0;const tot=gap(s,d)+(x.balls||0)*ballPrice();return tot?Math.ceil(tot/n):0}
 function memberFee(s,id){const v=s.memberFee[id];return v==null?s.dates.length*fee():v}
 function income(s,d){const x=getSess(s,d);let t=0;for(const id in x.att)t+=isMember(s,id)?fee():(x.att[id].paid||0);return t}
 function normalize(st){
@@ -473,7 +475,8 @@ function vSession(s){
     <div class="stat ${owe.length?'alert':''}"><b>${owe.length}</b><span>臨打未收</span></div>
     <div class="stat"><b class="cork">${x.balls||0}<small style="font-size:15px"> 顆</small></b><span>每人球錢 ${money(sh)}</span></div>
   </div>
-  ${n>cap?`<p class="note">超過 ${cap} 人，多 ${n-cap} 人，當天多收 ${money((n-cap)*fee())}。</p>`:''}
+  ${n>cap?`<p class="note">超過 ${cap} 人，多 ${n-cap} 人，當天多收 ${money(extra(s,d))}（已記錄）。</p>`:''}
+  ${gap(s,d)?`<p class="note">只有 ${n} 人，場地少收 ${money(gap(s,d))}，這筆會併入當天球錢，由出席的人平分。</p>`:''}
   <details class="card" ${ui.parse||!n?'open':''}><summary>貼上 LINE 報名</summary>
     <textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
     <div class="row-btns"><button class="btn pri" data-act="parse">讀取名單</button>${ui.parse?'<button class="btn ghost" data-act="cancelParse">取消</button>':''}</div>
@@ -487,7 +490,7 @@ function vSession(s){
   </section>
   <section class="card"><h2>這次用了幾顆球</h2>
     <div class="row-btns"><div class="stepper"><button data-act="ball" data-v="-1" aria-label="少一顆">−</button><span class="num cork">${x.balls||0}</span><button data-act="ball" data-v="1" aria-label="多一顆">＋</button></div>
-    <p class="muted small">一顆 ${money(ballPrice())}，${n||0} 人平分，每人 ${money(sh)}（無條件進位）。季末一起收。</p></div>
+    <p class="muted small">一顆 ${money(ballPrice())}${gap(s,d)?`＋場地缺額 ${money(gap(s,d))}`:''}，${n||0} 人平分，每人 ${money(sh)}（無條件進位）。季末一起收。</p></div>
   </section>
   ${!n?`<button class="btn ghost warn sm" data-act="delDate" data-d="${d}" style="align-self:flex-start">這天不打，從本季移除 ${md(d)}</button>`:''}`;
 }
@@ -563,15 +566,17 @@ function vBalls(s){
     <div class="stat ${stock<0?'alert':''}"><b>${stock}</b><span>剩餘顆數</span></div>
     <div class="stat"><b class="cork">${used}</b><span>本季已用</span></div>
     <div class="stat"><b>${money(spent)}</b><span>買球花費（${bought} 顆）</span></div>
-    <div class="stat"><b>${money(collected)}</b><span>大家分攤的球錢</span></div>
+    <div class="stat"><b>${money(collected)}</b><span>大家分攤的球錢（含場地缺額）</span></div>
+    <div class="stat"><b>${money(s.dates.reduce((a,d)=>a+gap(s,d),0))}</b><span>本季少人場地缺額</span></div>
+    <div class="stat extra"><b>${money(s.dates.reduce((a,d)=>a+extra(s,d),0))}</b><span>本季多收（超過 ${state.settings.cap} 人）</span></div>
   </div>
   ${stock<0?`<p class="warnnote">用掉的比買的多 ${-stock} 顆，可能有一桶還沒記。補一筆購買紀錄就會對上。</p>`:''}
   <section class="card"><h2>買球紀錄</h2>
     ${s.purchases.length?`<ul class="list">${s.purchases.map((p,i)=>`<li><span class="num" style="width:3.2em">${md(p.date)}</span><span class="nm">${p.buckets} 桶（${p.buckets*per} 顆）${p.note?`<span class="muted small"> ${esc(p.note)}</span>`:''}</span><span class="num">${money(p.buckets*p.price)}</span><button class="x" data-act="delPurchase" data-i="${i}" aria-label="刪除">×</button></li>`).join('')}</ul>`:'<p class="muted">還沒有買球紀錄。</p>'}
     <div class="row-btns"><input type="date" id="buyDate" value="${today()}"><input type="number" id="buyN" inputmode="numeric" value="1" min="1" style="width:4em"><span>桶，每桶</span><input type="number" id="buyP" inputmode="numeric" value="${state.settings.bucketPrice}" style="width:5.5em"><button class="btn pri" data-act="addPurchase">記一筆</button></div>
   </section>
-  <section class="card"><h2>每次用球</h2><ul class="list">${s.dates.filter(d=>Object.keys(getSess(s,d).att||{}).length).map(d=>{const x=getSess(s,d);return `<li><button class="btn sm ghost num" data-act="date" data-d="${d}">${md(d)}</button><span class="nm"><span class="num cork" style="font-size:17px">${x.balls||0}</span> 顆 · ${Object.keys(x.att).length} 人</span><span class="small muted">每人</span><span class="num">${money(share(s,d))}</span></li>`}).join('')||'<li class="muted">還沒有打球紀錄</li>'}</ul>
-  <p class="muted small">球錢 = 用球數 × ${money(ballPrice())} ÷ 當天出席人數，無條件進位到整數。一桶 ${money(state.settings.bucketPrice)}／${per} 顆可在「結算」最下面的設定修改。</p></section>`;
+  <section class="card"><h2>每次用球</h2><ul class="list">${s.dates.filter(d=>Object.keys(getSess(s,d).att||{}).length).map(d=>{const x=getSess(s,d);return `<li><button class="btn sm ghost num" data-act="date" data-d="${d}">${md(d)}</button><span class="nm"><span class="num cork" style="font-size:17px">${x.balls||0}</span> 顆 · ${Object.keys(x.att).length} 人${gap(s,d)?`<span class="muted small"> · 缺額 ${money(gap(s,d))}</span>`:''}${extra(s,d)?`<span class="muted small"> · 多收 ${money(extra(s,d))}</span>`:''}</span><span class="small muted">每人</span><span class="num">${money(share(s,d))}</span></li>`}).join('')||'<li class="muted">還沒有打球紀錄</li>'}</ul>
+  <p class="muted small">球錢 =（用球數 × ${money(ballPrice())} ＋ 當天場地缺額）÷ 當天出席人數，無條件進位到整數。場地缺額 = 場地費 − 出席人數 × 每人費用（不足 ${state.settings.cap} 人才有）。一桶 ${money(state.settings.bucketPrice)}／${per} 顆可在「結算」最下面的設定修改。</p></section>`;
 }
 function vFullSettle(s){
   const {ids,out}=calc(s);let refund=0,collect=0,carryOn=0;
@@ -610,7 +615,7 @@ function ballMessage(s){
   const rows=ballRows(s).filter(r=>!r.paid);
   const used=s.dates.reduce((a,d)=>a+(getSess(s,d).balls||0),0);
   if(!rows.length)return `${s.name} 球錢已全部收齊`;
-  return `${s.name} 球錢結算\n共用 ${used} 顆，每顆 ${money(ballPrice())}，依出席人數平分\n`+rows.map(r=>`${r.name} ${money(r.amt)}`).join('\n')+`\n合計 ${money(rows.reduce((a,r)=>a+r.amt,0))}`;
+  return `${s.name} 球錢結算\n共用 ${used} 顆，每顆 ${money(ballPrice())}${s.dates.some(d=>gap(s,d))?`，含少人場地缺額 ${money(s.dates.reduce((a,d)=>a+gap(s,d),0))}`:''}，依出席人數平分\n`+rows.map(r=>`${r.name} ${money(r.amt)}`).join('\n')+`\n合計 ${money(rows.reduce((a,r)=>a+r.amt,0))}`;
 }
 function vBallSettle(s){
   const rows=ballRows(s);
@@ -620,10 +625,11 @@ function vBallSettle(s){
     <div class="stats">
       <div class="stat"><b class="cork">${used}</b><span>本季用球（顆）</span></div>
       <div class="stat"><b>${money(used*ballPrice())}</b><span>球的成本（每顆 ${money(ballPrice())}）</span></div>
+      <div class="stat"><b>${money(s.dates.reduce((a,d)=>a+gap(s,d),0))}</b><span>少人場地缺額</span></div>
       <div class="stat"><b>${money(total)}</b><span>每人分攤合計（進位後）</span></div>
       <div class="stat ${total-got>0?'alert':''}"><b>${money(total-got)}</b><span>還沒收</span></div>
     </div>
-    <p class="muted small">每人球錢＝每次用球數 × 單價 ÷ 當天出席人數（進位），再把他出席的每次加起來。標示「已收」代表你已經收到這筆現金，完整結算裡就不會再從他的結餘扣球錢；沒標示的人，球錢會從結餘扣。</p>
+    <p class="muted small">每人球錢＝（每次用球數 × 單價 ＋ 當天少人的場地缺額）÷ 當天出席人數（進位），再把他出席的每次加起來。標示「已收」代表你已經收到這筆現金，完整結算裡就不會再從他的結餘扣球錢；沒標示的人，球錢會從結餘扣。</p>
     ${rows.length?`<div>${rows.map(r=>`<div class="srow ${r.paid?'done':''}"><div><span class="nm">${esc(r.name)}</span> ${r.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'} <span class="muted small">出席 ${r.att} 次</span></div><div class="bal">${money(r.amt)}</div>
       <div class="acts"><button type="button" class="pay ${r.paid?'ok':'due'}" data-act="ballPaid" data-id="${r.id}">${r.paid?'已收':'未收'}</button></div></div>`).join('')}</div>
     <div class="row-btns"><button type="button" class="btn sm" data-act="ballAll" data-v="1">全部標示已收</button><button type="button" class="btn sm ghost" data-act="ballAll" data-v="0">全部改回未收</button><button type="button" class="btn sm pri right" data-act="copyBall">複製 LINE 訊息</button></div>`
