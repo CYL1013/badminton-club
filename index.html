@@ -230,7 +230,9 @@ function calc(s){
   for(const id of ids){const o=out[id];o.carry=s.carry[id]||0;
     o.ballPaid=!!(s.settle&&s.settle[id]&&s.settle[id].ballPaid);const ballOwed=o.ballPaid?0:o.ball;
     if(o.member){o.fee=memberFee(s,id);o.feePaid=s.feePaid[id]||0;o.slots=Math.round(o.fee/fee());o.remain=o.slots-o.att;o.due=Math.max(0,o.fee-o.carry-o.feePaid);o.balance=o.carry+o.feePaid-o.att*fee()-ballOwed}
-    else{o.balance=o.carry+o.paid-o.att*fee()-ballOwed}}
+    else{o.balance=o.carry+o.paid-o.att*fee()-ballOwed}
+    const st=(s.settle&&s.settle[id])||{};o.done=false;o.stale=false;
+    if(st.done){if(st.pre!=null&&Math.round(o.balance)===Math.round(st.pre)){o.done=true;o.cash=-st.pre;o.balance=0}else o.stale=true}}
   return {ids,out};
 }
 function findPerson(nm){const k=norm(nm);return state.people.find(p=>norm(p.name)===k||(p.aliases||[]).some(a=>norm(a)===k))}
@@ -525,7 +527,7 @@ function vGrid(s){
   const cell=(id,d)=>{const a=getSess(s,d).att?.[id];if(!a)return `<td class="c" data-act="cell" data-id="${id}" data-d="${d}"></td>`;
     if(out[id].member)return `<td class="c att" data-act="cell" data-id="${id}" data-d="${d}">●</td>`;
     const p=a.paid||0;return p>=fee()?`<td class="c paid" data-act="cell" data-id="${id}" data-d="${d}">${p}</td>`:`<td class="c due" data-act="cell" data-id="${id}" data-d="${d}">${p?p:'欠'}</td>`};
-  const row=(id,first)=>{const o=out[id];return `<tr class="${first?'sep':''}"><th class="first" scope="row">${esc(pname(id))}</th>${s.dates.map(d=>cell(id,d)).join('')}<td class="sum">${o.att}</td><td class="sum ${o.member?'':(o.unpaid?'neg':'')}">${o.member?(o.remain+' 次'):(o.unpaid?'欠'+o.unpaid:'—')}</td></tr>`};
+  const row=(id,first)=>{const o=out[id];return `<tr class="${first?'sep':''}"><th class="first" scope="row">${esc(pname(id))}${o.done?' <span class="tag m">已結清</span>':''}</th>${s.dates.map(d=>cell(id,d)).join('')}<td class="sum">${o.att}</td><td class="sum ${o.member?'':(o.unpaid?'neg':'')}">${o.member?(o.remain+' 次'):(o.unpaid?'欠'+o.unpaid:'—')}</td></tr>`};
   const foot=(label,f)=>`<tr><th class="first">${label}</th>${s.dates.map(d=>`<td class="sum">${f(d)}</td>`).join('')}<td></td><td></td></tr>`;
   return `<div class="legend"><span><i style="background:var(--court-soft)"></i>● 季費出席</span><span><i style="background:var(--good-soft)"></i>臨打已收</span><span><i style="background:var(--warn-soft)"></i>臨打未收</span><span>點格子切換</span></div>
   <div class="gridwrap" data-keep="grid"><table class="g"><thead><tr><th class="first">姓名</th>${s.dates.map(d=>`<th class="dh" data-act="date" data-d="${d}">${md(d)}</th>`).join('')}<th>出席</th><th>剩餘／欠</th></tr></thead>
@@ -547,8 +549,8 @@ function vPeople(s){
   const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
   const others=state.people.filter(p=>!out[p.id]);
   const li=id=>{const o=out[id];const open=ui.open===id;
-    const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}`
-      :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}`;
+    const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}${o.done?'<span class="tag m">已結清</span>':''}`
+      :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}${o.done?'<span class="tag m">已結清</span>':''}`;
     return `<li><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
   return `<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
     ${mem.length?`<ul class="list">${mem.map(li).join('')}</ul>`:'<p class="muted">還沒有季費會員。從下面新增，或把臨打設成季費會員。</p>'}</section>
@@ -587,8 +589,10 @@ function personMsg(s,id){
     `球錢 ${money(o.ball)}${o.ballPaid?'（已另外收）':''}`,
     `應付合計 ${money(court+ballOwed)}`,
     `已繳 ${money(paid)}${o.carry?'（含上季結轉）':''}`,''];
+  if(o.done&&o.cash)L.splice(L.length-1,0,o.cash>0?`結清時另外收了 ${money(o.cash)}`:`結清時退了 ${money(-o.cash)}`);
   let end;
-  if(b<0)end=o.member&&st.renew===true?`續約：下季季費多補 ${money(-b)}`:`還需補 ${money(-b)}`;
+  if(o.done)end='已結清，謝謝！';
+  else if(b<0)end=o.member&&st.renew===true?`續約：下季季費多補 ${money(-b)}`:`還需補 ${money(-b)}`;
   else if(b>0){
     if(!o.member)end=`多繳 ${money(b)}，可退還或下次抵`;
     else if(st.renew===true)end=`續約：剩 ${money(b)} 折抵下季季費`;
@@ -600,19 +604,21 @@ function personMsg(s,id){
 }
 function vFullSettle(s){
   const {ids,out}=calc(s);let refund=0,collect=0,carryOn=0;
-  const rows=ids.map(id=>{const o=out[id];const st=s.settle[id]||{};const b=o.balance;
+  const rows=ids.map(id=>{const o=out[id];const st=s.settle[id]||{};const b=o.balance;const done=o.done;
     let hint='';
-    if(o.member){if(st.renew===true)hint=b>=0?`續約：下季季費折抵 <b>${money(b)}</b>`:`續約：下季季費要多收 <b>${money(-b)}</b>`;
+    if(done)hint=o.cash>0?`已結清（結清時收了 ${money(o.cash)}）`:o.cash<0?`已結清（結清時退了 ${money(-o.cash)}）`:'已結清';
+    else if(o.stale)hint='⚠ 結清後資料有變動，請確認金額後重新勾選';
+    else if(o.member){if(st.renew===true)hint=b>=0?`續約：下季季費折抵 <b>${money(b)}</b>`:`續約：下季季費要多收 <b>${money(-b)}</b>`;
       else if(st.renew===false)hint=b>=0?`不續：退給他 <b class="pos">${money(b)}</b>`:`不續：向他收 <b class="neg">${money(-b)}</b>`;
       else hint='還沒決定要不要續約';}
     else hint=b>0?`退給他（或留著下次抵）<b class="pos">${money(b)}</b>`:b<0?`向他收 <b class="neg">${money(-b)}</b>`:'已平';
-    if(!st.done){if(o.member&&st.renew===true)carryOn+=b;else if(b>0)refund+=b;else collect+=-b}
+    if(!done){if(o.member&&st.renew===true)carryOn+=b;else if(b>0)refund+=b;else collect+=-b}
     const figs=o.member?`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已繳 ${money(o.feePaid)} − 場地 ${o.att}×${fee()}${o.ballPaid?` · 球錢 ${money(o.ball)} 已另外收`:` − 球錢 ${money(o.ball)}`} · 剩 ${o.remain} 次`
       :`${o.carry?`上季 ${signed(o.carry)} ＋ `:''}已付 ${money(o.paid)} − 場地 ${o.att}×${fee()}${o.ballPaid?` · 球錢 ${money(o.ball)} 已另外收`:` − 球錢 ${money(o.ball)}`}`;
-    return `<div class="srow ${st.done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> ${o.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'}</div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
+    return `<div class="srow ${done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> ${o.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'}</div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
       <div class="figs">${figs}</div>
       <div class="acts">${o.member?`<span class="seg"><button class="${st.renew===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button class="${st.renew===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`:''}<span class="hint">${hint}</span>
-      <button type="button" class="btn sm" data-act="copyMsg" data-id="${id}">複製訊息</button><label class="ck right"><input type="checkbox" id="done-${id}" data-ch="done" data-id="${id}" ${st.done?'checked':''}>已結清</label></div></div>`}).join('');
+      <button type="button" class="btn sm" data-act="copyMsg" data-id="${id}">複製訊息</button><label class="ck right"><input type="checkbox" id="done-${id}" data-ch="done" data-id="${id}" ${done?'checked':''}>已結清</label></div></div>`}).join('');
   return `<section class="card"><h2>${esc(s.name)} 結算</h2>
     <p class="muted small">結餘 = 已繳 − 出席次數 × ${fee()} − 球錢（＋上季結轉）。季費會員的結餘就是「剩餘次數的錢 − 球錢」。續約的人結餘會帶到下一季折抵；勾「已結清」代表已經現金收／退完，不再帶過去。</p>
     <div class="totals"><div><h3>要退</h3><span class="bal pos">${money(refund)}</span></div><div><h3>要收</h3><span class="bal neg">${money(collect)}</span></div><div><h3>帶到下季折抵</h3><span class="bal">${signed(carryOn)}</span></div></div>
@@ -791,7 +797,7 @@ function act(a,el){
 function createSeason(old){const N=ui.ns;const dates=planCalc(N).dates;if(!dates.length){toast('請先選好第一天和次數（或最後一天）');return}
   const ns={id:uid(),name:N.name.trim()||seasonName(dates),closed:false,dates,members:[...N.members],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{}};
   ns.members.forEach(id=>ns.memberFee[id]=dates.length*state.settings.court/state.settings.cap);
-  if(old){const {ids,out}=calc(old);ids.forEach(id=>{const st=old.settle[id]||{};const b=Math.round(out[id].balance);if(!st.done&&b!==0)ns.carry[id]=b});old.closed=true}
+  if(old){const {ids,out}=calc(old);ids.forEach(id=>{const b=Math.round(out[id].balance);if(!out[id].done&&b!==0)ns.carry[id]=b});old.closed=true}
   state.seasons.push(ns);state.cur=ns.id;ui.ns=null;ui.date=null;ui.tab='people';save('新的一季建立好了');window.scrollTo(0,0)}
 function change(el){
   const k=el.dataset.ch;const s=state&&state.seasons.length?S():null;const id=el.dataset.id;const num=()=>Math.round(+el.value||0);
@@ -807,7 +813,24 @@ function change(el){
     case 'pfee':s.memberFee[id]=num();save();break;
     case 'ppaid':s.feePaid[id]=num();save();break;
     case 'pcarry':{const v=num();if(v)s.carry[id]=v;else delete s.carry[id];save();break}
-    case 'done':s.settle[id]={...(s.settle[id]||{}),done:el.checked};save();break;
+    case 'done':{
+      const st=s.settle[id]||{};
+      if(el.checked){
+        const o0=calc(s).out[id];const snap=st.snap||{paid:{}};
+        if(o0.member){if(o0.due>0){if(snap.feePaid==null)snap.feePaid=s.feePaid[id]||0;s.feePaid[id]=(s.feePaid[id]||0)+o0.due}}
+        else s.dates.forEach(d=>{const a=getSess(s,d).att?.[id];if(a&&(a.paid||0)<fee()){if(!(d in snap.paid))snap.paid[d]=a.paid||0;a.paid=fee()}});
+        s.settle[id]={...st,done:false,snap};
+        const pre=calc(s).out[id].balance;
+        s.settle[id]={...st,done:true,pre,snap};
+        save(`${pname(id)} 已結清，出席表和成員已同步更新`);
+      }else{
+        const snap=st.snap;
+        if(snap){for(const d in snap.paid){const a=getSess(s,d).att?.[id];if(a)a.paid=snap.paid[d]}
+          if(snap.feePaid!=null){if(snap.feePaid>0)s.feePaid[id]=snap.feePaid;else delete s.feePaid[id]}}
+        const n={...st,done:false};delete n.pre;delete n.snap;s.settle[id]=n;
+        save(`${pname(id)} 已取消結清，已還原收款紀錄`);
+      }
+      break}
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;save()}break}
     case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
     case 'plan':{const P=planOf(el.dataset.kind);if(!P)break;P[el.dataset.k]=el.value;render();break}
