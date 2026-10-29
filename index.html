@@ -581,7 +581,7 @@ function vBalls(s){
 function personMsg(s,id){
   const {out}=calc(s);const o=out[id];if(!o)return '';
   const court=o.att*fee(),ball=o.ballPaid?0:o.ball;
-  const L=[`${pname(id)} 本季費用`,`場地 ${o.att}次×${fee()} = ${money(court)}`,`球錢 ${o.ballPaid?'已收':money(ball)}`,`合計 ${money(court+ball)}`];
+  const L=[`哈囉 ${pname(id)}，這季的費用如下：`,`場地 ${o.att}次×${fee()} = ${money(court)}`,`球錢 ${o.ballPaid?'已收':money(ball)}`,`合計 ${money(court+ball)}`];
   return L.join('\n');
 }
 function vFullSettle(s){
