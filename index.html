@@ -155,6 +155,7 @@ nav#tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--surfa
 nav#tabs .in{display:flex;width:100%;max-width:760px}
 nav#tabs button{flex:1;border:0;background:transparent;padding:9px 2px 10px;font-size:13px;color:var(--muted);border-top:3px solid transparent}
 nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:700}
+#undo{position:fixed;right:12px;bottom:calc(108px + env(safe-area-inset-bottom,0px));background:var(--card,#fff);color:var(--ink);border:1px solid var(--line,#ccc);padding:8px 14px;border-radius:99px;font-size:13px;z-index:6;box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:99px;font-size:13px;z-index:6;max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}}
 
@@ -183,6 +184,7 @@ nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:
   <button data-act="tab" data-v="settle">結算</button>
 </div></nav>
 <div id="toast" hidden></div>
+<button id="undo" type="button" data-act="undo" hidden>↶ 復原上一步</button>
 
 <script>
 const DEF={court:800,cap:8,fee:100,bucketPrice:600,perBucket:12};
@@ -202,8 +204,11 @@ const addDays=(d,n)=>{const x=dt(d);x.setUTCDate(x.getUTCDate()+n);return x.toIS
 const today=()=>{const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')};
 const money=n=>{n=Math.round(n);return (n<0?'−':'')+'$'+Math.abs(n).toLocaleString()};
 const signed=n=>{n=Math.round(n);return n===0?'$0':(n>0?'+':'−')+'$'+Math.abs(n).toLocaleString()};
-const fee=()=>state.settings.fee;
-const ballPrice=()=>state.settings.bucketPrice/state.settings.perBucket;
+const RATE_KEYS=['court','cap','fee','bucketPrice','perBucket'];
+/* Each season keeps its own rates, so changing settings later never rewrites an older season's money. */
+const rt=(k,s)=>{s=s||(state&&state.seasons&&state.seasons.length?S():null);const r=s&&s.rates;return r&&r[k]!=null?r[k]:state.settings[k]};
+const fee=()=>rt('fee');
+const ballPrice=()=>rt('bucketPrice')/rt('perBucket');
 const norm=n=>String(n).replace(/\s+/g,'').toLowerCase();
 function S(){return state.seasons.find(s=>s.id===state.cur)||state.seasons[state.seasons.length-1]}
 const person=id=>state.people.find(p=>p.id===id)||{id,name:'(已刪除)',aliases:[]};
@@ -211,14 +216,15 @@ const pname=id=>person(id).name;
 const isMember=(s,id)=>s.members.includes(id);
 const getSess=(s,d)=>s.sessions[d]||{att:{},backup:[],balls:0};
 function sess(s,d){if(!s.sessions[d])s.sessions[d]={att:{},backup:[],balls:0};const x=s.sessions[d];x.att=x.att||{};x.backup=x.backup||[];x.balls=x.balls||0;return x}
-function gap(s,d){const n=Object.keys(getSess(s,d).att||{}).length;return n?Math.max(0,state.settings.court-n*fee()):0}
-function extra(s,d){const n=Object.keys(getSess(s,d).att||{}).length;return Math.max(0,n-state.settings.cap)*fee()}
+function gap(s,d){const n=Object.keys(getSess(s,d).att||{}).length;return n?Math.max(0,rt('court',s)-n*fee()):0}
+function extra(s,d){const n=Object.keys(getSess(s,d).att||{}).length;return Math.max(0,n-rt('cap',s))*fee()}
 function share(s,d){const x=getSess(s,d);const n=Object.keys(x.att||{}).length;if(!n)return 0;const tot=gap(s,d)+(x.balls||0)*ballPrice();return tot?Math.ceil(tot/n):0}
 function memberFee(s,id){const v=s.memberFee[id];return v==null?s.dates.length*fee():v}
 function income(s,d){const x=getSess(s,d);let t=0;for(const id in x.att)t+=isMember(s,id)?fee():(x.att[id].paid||0);return t}
 function normalize(st){
   st=st||{};st.settings={...DEF,...(st.settings||{})};st.people=st.people||[];
   st.seasons=(st.seasons||[]).map(s=>({name:'',closed:false,dates:[],members:[],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{},...s}));
+  st.seasons.forEach(s=>{if(!s.rates)s.rates=Object.fromEntries(RATE_KEYS.map(k=>[k,st.settings[k]]))});
   if(!st.cur&&st.seasons.length)st.cur=st.seasons[st.seasons.length-1].id;
   return st;
 }
@@ -463,17 +469,17 @@ function vSession(s){
   if(!d)return strip+qdCard(s)+`<div class="card"><p class="muted">這一季還沒有日期，按「＋＋快速加入」一次排好整季，或「＋加一天」新增單日。</p></div>`;
   const x=getSess(s,d);const ids=Object.keys(x.att||{});
   const mem=ids.filter(id=>isMember(s,id)),gst=ids.filter(id=>!isMember(s,id));
-  const cap=state.settings.cap,n=ids.length,inc=income(s,d);
+  const cap=rt('cap',s),n=ids.length,inc=income(s,d);
   const owe=gst.filter(id=>(x.att[id].paid||0)<fee());
   const absent=s.members.filter(id=>!x.att[id]);
   const backups=(x.backup||[]).filter(id=>!x.att[id]);
   const sh=share(s,d);
   const rows=[...mem,...gst].map((id,i)=>{const m=isMember(s,id);const p=x.att[id].paid||0;
     return `<li><span class="idx">${i+1}</span><span class="nm">${esc(pname(id))}</span>${m?'<span class="tag m">季費</span>':`<span class="tag">臨打</span><button class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`}<button class="x" data-act="rm" data-id="${id}" aria-label="移除 ${esc(pname(id))}">×</button></li>`}).join('');
-  return `${strip}${qdCard(s)}
+  return `${strip}${qdCard(s)}${pendingCard(s)}
   <div class="stats">
     <div class="stat ${n>cap?'extra':''}"><b>${n}<small style="font-size:15px;color:var(--muted)">/${cap}</small></b><span>出席 · 季費${mem.length} 臨打${gst.length}</span></div>
-    <div class="stat"><b>${money(inc)}</b><span>場地收入（場地 ${money(state.settings.court)}）</span></div>
+    <div class="stat"><b>${money(inc)}</b><span>場地收入（場地 ${money(rt('court',s))}）</span></div>
     <div class="stat ${owe.length?'alert':''}"><b>${owe.length}</b><span>臨打未收</span></div>
     <div class="stat"><b class="cork">${x.balls||0}<small style="font-size:15px"> 顆</small></b><span>每人球錢 ${money(sh)}</span></div>
   </div>
@@ -495,6 +501,21 @@ function vSession(s){
     <p class="muted small">一顆 ${money(ballPrice())}${gap(s,d)?`＋場地缺額 ${money(gap(s,d))}`:''}，${n||0} 人平分，每人 ${money(sh)}（無條件進位）。季末一起收。</p></div>
   </section>
   ${!n?`<button class="btn ghost warn sm" data-act="delDate" data-d="${d}" style="align-self:flex-start">這天不打，從本季移除 ${md(d)}</button>`:''}`;
+}
+function pendingCard(s){
+  const {ids,out}=calc(s);const chip=(id,txt)=>`<button type="button" class="chip" data-act="goPerson" data-id="${id}">${esc(pname(id))} ${txt}</button>`;
+  const live=ids.filter(id=>!out[id].done);
+  const dueM=live.filter(id=>out[id].member&&out[id].due>0);
+  const owe=live.filter(id=>!out[id].member&&out[id].unpaid>0);
+  const low=live.filter(id=>out[id].member&&out[id].remain>=0&&out[id].remain<=2);
+  const stale=ids.filter(id=>out[id].stale);
+  const t=today();const nx=s.dates.find(d=>d>=t);
+  const line=nx?`<p class="small">下次打球 <b>${md(nx)}（週${wd(nx)}）</b>，目前報名 ${Object.keys(getSess(s,nx).att||{}).length}/${rt('cap',s)} 人。</p>`:'';
+  const grp=(title,list)=>list.length?`<div><h3>${title}</h3><div class="chips" style="margin-top:6px">${list.join('')}</div></div>`:'';
+  const total=dueM.length+owe.length+low.length+stale.length;
+  return `<details class="card" ${total?'open':''}><summary>待處理${total?`（${total}）`:'：目前都處理好了 ✓'}</summary>
+    ${line}${grp('季費還沒繳完',dueM.map(id=>chip(id,money(out[id].due))))}${grp('臨打還沒付',owe.map(id=>chip(id,money(out[id].unpaid))))}${grp('剩餘次數 ≤ 2',low.map(id=>chip(id,out[id].remain+' 次')))}${grp('結清後資料有變動',stale.map(id=>chip(id,'')))}
+    <p class="muted small">點名字會跳到他的成員資料。</p></details>`;
 }
 function qdCard(s){
   if(!ui.qd)return '';
@@ -545,7 +566,7 @@ function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
     <label>上季結轉（正數＝可折抵）<input type="number" inputmode="numeric" id="pc-${id}" data-ch="pcarry" data-id="${id}" value="${s.carry[id]||0}"></label>
   </div><div class="row-btns">${m&&o&&o.due>0?`<button class="btn sm pri" data-act="feeFull" data-id="${id}">季費繳清（${money(o.due)}）</button>`:''}${o&&o.att?'':`<button class="btn sm warn ghost" data-act="delPerson" data-id="${id}">刪除這個人</button>`}</div>`}
 function vPeople(s){
-  const {ids,out}=calc(s);const cap=state.settings.cap;
+  const {ids,out}=calc(s);const cap=rt('cap',s);
   const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
   const others=state.people.filter(p=>!out[p.id]);
   const li=id=>{const o=out[id];const open=ui.open===id;
@@ -559,7 +580,7 @@ function vPeople(s){
   <section class="card"><h2>新增成員</h2><div class="row-btns"><input type="text" id="newName" placeholder="名字" style="flex:1"><select id="newRole"><option value="m">季費會員</option><option value="g">臨打</option></select><button class="btn pri" data-act="newPerson">新增</button></div></section>`;
 }
 function vBalls(s){
-  const per=state.settings.perBucket;
+  const per=rt('perBucket',s);
   const bought=s.purchases.reduce((a,p)=>a+p.buckets*per,0),spent=s.purchases.reduce((a,p)=>a+p.buckets*p.price,0);
   const used=s.dates.reduce((a,d)=>a+(getSess(s,d).balls||0),0);
   const collected=s.dates.reduce((a,d)=>a+share(s,d)*Object.keys(getSess(s,d).att||{}).length,0);
@@ -570,7 +591,7 @@ function vBalls(s){
     <div class="stat"><b>${money(spent)}</b><span>買球花費（${bought} 顆）</span></div>
     <div class="stat"><b>${money(collected)}</b><span>大家分攤的球錢（含場地缺額）</span></div>
     <div class="stat"><b>${money(s.dates.reduce((a,d)=>a+gap(s,d),0))}</b><span>本季少人場地缺額</span></div>
-    <div class="stat extra"><b>${money(s.dates.reduce((a,d)=>a+extra(s,d),0))}</b><span>本季多收（超過 ${state.settings.cap} 人）</span></div>
+    <div class="stat extra"><b>${money(s.dates.reduce((a,d)=>a+extra(s,d),0))}</b><span>本季多收（超過 ${rt('cap',s)} 人）</span></div>
   </div>
   ${stock<0?`<p class="warnnote">用掉的比買的多 ${-stock} 顆，可能有一桶還沒記。補一筆購買紀錄就會對上。</p>`:''}
   <section class="card"><h2>買球紀錄</h2>
@@ -623,15 +644,36 @@ function vFullSettle(s){
     <p class="muted small">結餘 = 已繳 − 出席次數 × ${fee()} − 球錢（＋上季結轉）。季費會員的結餘就是「剩餘次數的錢 − 球錢」。續約的人結餘會帶到下一季折抵；勾「已結清」代表已經現金收／退完，不再帶過去。</p>
     <div class="totals"><div><h3>要退</h3><span class="bal pos">${money(refund)}</span></div><div><h3>要收</h3><span class="bal neg">${money(collect)}</span></div><div><h3>帶到下季折抵</h3><span class="bal">${signed(carryOn)}</span></div></div>
     <div>${rows||'<p class="muted">這一季還沒有資料。</p>'}</div></section>
-  <section class="card"><h2>開新的一季</h2>${ui.ns?nsForm(s):`<p class="muted small">建立下一季的日期和季費會員。沒勾「已結清」的人，結餘會自動帶過去。</p><button class="btn pri" data-act="newSeason" style="align-self:flex-start">開始設定下一季</button>`}</section>
+  <section class="card" id="ns-card"><h2>開新的一季</h2>${ui.ns?nsForm(s):`<p class="muted small">建立下一季的日期和季費會員。沒勾「已結清」的人，結餘會自動帶過去。</p><button class="btn pri" data-act="newSeason" style="align-self:flex-start">開始設定下一季</button>`}</section>
   <details class="card"><summary>費用設定與後端</summary><div class="pform">
-    ${[['court','場地費（每次）'],['cap','每次預計人數'],['fee','每人每次'],['bucketPrice','一桶球價錢'],['perBucket','一桶幾顆']].map(([k,l])=>`<label>${l}<input type="number" inputmode="numeric" id="set-${k}" data-ch="set" data-k="${k}" value="${state.settings[k]}"></label>`).join('')}
-  </div><p class="muted small">改了會重新計算所有季的金額。</p>
+    ${[['court','場地費（每次）'],['cap','每次預計人數'],['fee','每人每次'],['bucketPrice','一桶球價錢'],['perBucket','一桶幾顆']].map(([k,l])=>`<label>${l}<input type="number" inputmode="numeric" id="set-${k}" data-ch="set" data-k="${k}" value="${rt(k,s)}"></label>`).join('')}
+  </div><p class="muted small">改了只影響「這一季」，之前結算過的季不會變動；同時會成為下一季的預設值。</p>
   <div class="row-btns"><button class="btn sm" data-act="copy">複製備份資料</button><button class="btn sm warn ghost" data-act="logout">清除本機登入設定</button></div></details>`;
 }
 function vSettle(s){
-  const tog=`<div class="row-btns"><span class="seg"><button type="button" class="${ui.sm!=='ball'?'on':''}" data-act="smode" data-v="full">完整結算</button><button type="button" class="${ui.sm==='ball'?'on':''}" data-act="smode" data-v="ball">只結算球錢</button></span></div>`;
-  return tog+(ui.sm==='ball'?vBallSettle(s):vFullSettle(s));
+  const tog=`<div class="row-btns"><span class="seg"><button type="button" class="${ui.sm!=='ball'?'on':''}" data-act="smode" data-v="full">完整結算</button><button type="button" class="${ui.sm==='ball'?'on':''}" data-act="smode" data-v="ball">只結算球錢</button><button type="button" class="${ui.sm==='renew'?'on':''}" data-act="smode" data-v="renew">續約總表</button></span></div>`;
+  return tog+(ui.sm==='ball'?vBallSettle(s):ui.sm==='renew'?vRenew(s):vFullSettle(s));
+}
+function vRenew(s){
+  const {ids,out}=calc(s);
+  const n=ui.ns?planCalc(ui.ns).dates.length:12;const F=Math.round(n*state.settings.court/state.settings.cap);
+  let pay=0,ref=0,undec=0;
+  const rows=s.members.filter(id=>out[id]).map(id=>{
+    const o=out[id];const st=s.settle[id]||{};const b=Math.round(o.balance);const r=st.renew;
+    let res='';
+    if(o.done)res='已結清，不帶到下季';
+    else if(r===true){const need=F-b;if(need>0){pay+=need;res=`下季要收 <b class="neg">${money(need)}</b>（季費 ${money(F)} − 結餘 ${signed(b)}）`}else{ref+=-need;res=`結餘已足夠，剩 <b class="pos">${money(-need)}</b> 可退或續抵`}}
+    else if(r===false){if(b>=0){ref+=b;res=`退給他 <b class="pos">${money(b)}</b>`}else{pay+=-b;res=`向他收 <b class="neg">${money(-b)}</b>`}}
+    else{undec++;res=b>=0?`續約：下季收 ${money(Math.max(0,F-b))}；不續：退 ${money(b)}`:`續約：下季收 ${money(F-b)}；不續：收 ${money(-b)}`}
+    return `<div class="srow ${o.done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> <span class="muted small">剩 ${o.remain} 次</span></div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
+      <div class="acts">${o.done?'':`<span class="seg"><button type="button" class="${r===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button type="button" class="${r===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`}<span class="hint">${res}</span></div></div>`}).join('');
+  const guests=ids.filter(id=>!out[id].member&&!out[id].done&&Math.round(out[id].balance)!==0).map(id=>{const b=Math.round(out[id].balance);return `<div class="srow"><div><span class="nm">${esc(pname(id))}</span> <span class="tag">臨打</span></div><div class="bal ${b>0?'pos':'neg'}">${signed(b)}</div><div class="figs">${b<0?`還欠 ${money(-b)}`:`多付 ${money(b)}，可退或下次抵`}</div></div>`}).join('');
+  return `<section class="card"><h2>續約總表</h2>
+    <p class="muted small">結餘 = 已繳 − 場地 − 球錢（＋上季結轉）。續約的人，結餘會直接折抵下季季費（預估季費 ${money(F)}，${n} 次；開新一季時可調整）。</p>
+    <div class="totals"><div><h3>預計要收</h3><span class="bal neg">${money(pay)}</span></div><div><h3>預計要退</h3><span class="bal pos">${money(ref)}</span></div><div><h3>還沒決定</h3><span class="bal">${undec} 人</span></div></div>
+    <div>${rows||'<p class="muted">這一季沒有季費會員。</p>'}</div></section>
+  ${guests?`<section class="card"><h2>臨打還沒結清</h2>${guests}</section>`:''}
+  <button type="button" class="btn pri" data-act="newSeason" style="align-self:flex-start">確認，開始設定下一季</button>`;
 }
 function ballRows(s){
   const {ids,out}=calc(s);
@@ -745,10 +787,11 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   if(isMember(s,id)){if(a)delete x.att[id];else x.att[id]={}}
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
-function act(a,el){
+function act0(a,el){
   if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
+    case 'goPerson':ui.tab='people';ui.open=id;render();window.scrollTo(0,0);break;
     case 'date':ui.date=el.dataset.d;ui.tab='session';ui.centerDate=true;render();window.scrollTo(0,0);break;
     case 'parse':doParse(s);render();break;
     case 'cancelParse':ui.parse=null;render();break;
@@ -769,13 +812,13 @@ function act(a,el){
     case 'newPerson':{const nm=$('#newName').value.trim();if(!nm)return;if(findPerson(nm)){toast('已經有這個人了');return}const p=findOrCreate(nm);if($('#newRole').value==='m')s.members.push(p.id);save(`已新增 ${nm}`);break}
     case 'addPurchase':{const n=+$('#buyN').value,pr=+$('#buyP').value,d=$('#buyDate').value||today();if(!(n>0))return;s.purchases.push({date:d,buckets:n,price:pr||state.settings.bucketPrice});s.purchases.sort((a,b)=>a.date<b.date?-1:1);save('已記錄');break}
     case 'delPurchase':s.purchases.splice(+el.dataset.i,1);save();break;
-    case 'renew':{s.settle[id]={...(s.settle[id]||{}),renew:el.dataset.v==='1'};save();break}
+    case 'renew':{const cur=(s.settle[id]||{}).renew,v=el.dataset.v==='1';s.settle[id]={...(s.settle[id]||{}),renew:cur===v?undefined:v};save();break}
     case 'smode':ui.sm=el.dataset.v;render();window.scrollTo(0,0);break;
     case 'ballPaid':{const st=s.settle[id]||{};s.settle[id]={...st,ballPaid:!st.ballPaid};save();break}
     case 'ballAll':{const on=el.dataset.v==='1';ballRows(s).forEach(r=>{const st=s.settle[r.id]||{};s.settle[r.id]={...st,ballPaid:on}});save(on?'都標示為已收':'都改回未收');break}
     case 'copyMsg':{const t=personMsg(s,id);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼給他就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
-    case 'newSeason':ui.ns=nsDefaults(s);render();break;
+    case 'newSeason':ui.ns=nsDefaults(s);ui.sm='full';render();{const c=document.getElementById('ns-card');if(c)c.scrollIntoView()}break;
     case 'cancelNs':ui.ns=null;render();break;
     case 'planSkip':{const P=planOf(el.dataset.kind),d=el.dataset.d;if(!P)break;P.keep=(P.keep||[]).filter(x=>x!==d);if(!(P.skip||[]).includes(d))P.skip=[...(P.skip||[]),d];render();break}
     case 'planUnskip':{const P=planOf(el.dataset.kind),d=el.dataset.d;if(!P)break;
@@ -795,11 +838,11 @@ function act(a,el){
   }
 }
 function createSeason(old){const N=ui.ns;const dates=planCalc(N).dates;if(!dates.length){toast('請先選好第一天和次數（或最後一天）');return}
-  const ns={id:uid(),name:N.name.trim()||seasonName(dates),closed:false,dates,members:[...N.members],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{}};
-  ns.members.forEach(id=>ns.memberFee[id]=dates.length*state.settings.court/state.settings.cap);
+  const ns={id:uid(),name:N.name.trim()||seasonName(dates),closed:false,dates,members:[...N.members],memberFee:{},feePaid:{},carry:{},sessions:{},purchases:[],settle:{},rates:Object.fromEntries(RATE_KEYS.map(k=>[k,state.settings[k]]))};
+  ns.members.forEach(id=>ns.memberFee[id]=dates.length*ns.rates.court/ns.rates.cap);
   if(old){const {ids,out}=calc(old);ids.forEach(id=>{const b=Math.round(out[id].balance);if(!out[id].done&&b!==0)ns.carry[id]=b});old.closed=true}
   state.seasons.push(ns);state.cur=ns.id;ui.ns=null;ui.date=null;ui.tab='people';save('新的一季建立好了');window.scrollTo(0,0)}
-function change(el){
+function change0(el){
   const k=el.dataset.ch;const s=state&&state.seasons.length?S():null;const id=el.dataset.id;const num=()=>Math.round(+el.value||0);
   switch(k){
     case 'season':state.cur=el.value;ui.date=null;ui.ns=null;render();save();break;
@@ -831,13 +874,29 @@ function change(el){
         save(`${pname(id)} 已取消結清，已還原收款紀錄`);
       }
       break}
-    case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;save()}break}
+    case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;if(s){s.rates=s.rates||{};s.rates[el.dataset.k]=v}save()}break}
     case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
     case 'plan':{const P=planOf(el.dataset.kind);if(!P)break;P[el.dataset.k]=el.value;render();break}
     case 'planAuto':{const P=planOf(el.dataset.kind);if(!P)break;P.autoHol=el.checked;if(P.autoHol)P.keep=[];render();break}
     case 'nsMem':{const m=ui.ns.members;if(el.checked){if(!m.includes(id))m.push(id)}else ui.ns.members=m.filter(x=>x!==id);render();break}
   }
 }
+/* ---------- undo: snapshot before every edit that actually changes data ---------- */
+const undoStack=[];
+const NOUNDO=new Set(['tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo']);
+function renderUndo(){const b=$('#undo');if(b)b.hidden=!(loaded&&undoStack.length)}
+function withUndo(fn){
+  if(!state||!state.seasons)return fn();
+  const before=JSON.stringify(state);fn();
+  try{if(state&&JSON.stringify(state)!==before){undoStack.push(before);if(undoStack.length>25)undoStack.shift();renderUndo()}}catch(e){}
+}
+function doUndo(){
+  const b=undoStack.pop();if(!b){renderUndo();return}
+  state=normalize(JSON.parse(b));if(!state.seasons.find(x=>x.id===state.cur))state.cur=state.seasons.length?state.seasons[state.seasons.length-1].id:null;
+  save('已復原上一步');renderUndo();
+}
+function act(a,el){if(a==='undo')return doUndo();if(NOUNDO.has(a))return act0(a,el);withUndo(()=>act0(a,el))}
+function change(el){if(el.dataset.ch==='season'||el.dataset.ch==='plan'||el.dataset.ch==='planAuto')return change0(el);withUndo(()=>change0(el))}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b&&!(b.tagName==='LABEL')){act(b.dataset.act,b)}});
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[role=button][data-act]')){e.preventDefault();act(e.target.dataset.act,e.target)}
   if(e.key==='Enter'&&e.target.id==='guestName')act('addGuest',e.target);if(e.key==='Enter'&&e.target.id==='newName')act('newPerson',e.target)});
