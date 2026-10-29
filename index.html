@@ -677,7 +677,7 @@ function vRenew(s){
 }
 function ballRows(s){
   const {ids,out}=calc(s);
-  return ids.filter(id=>out[id].att>0&&out[id].ball>0).map(id=>({id,name:pname(id),member:out[id].member,att:out[id].att,amt:out[id].ball,paid:out[id].ballPaid}));
+  return ids.filter(id=>out[id].att>0&&out[id].ball>0).map(id=>({id,name:pname(id),member:out[id].member,att:out[id].att,amt:out[id].ball,paid:out[id].ballPaid||out[id].done,done:out[id].done}));
 }
 function ballMessage(s){
   const rows=ballRows(s).filter(r=>!r.paid);
@@ -699,7 +699,7 @@ function vBallSettle(s){
     </div>
     <p class="muted small">每人球錢＝（每次用球數 × 單價 ＋ 當天少人的場地缺額）÷ 當天出席人數（進位），再把他出席的每次加起來。標示「已收」代表你已經收到這筆現金，完整結算裡就不會再從他的結餘扣球錢；沒標示的人，球錢會從結餘扣。</p>
     ${rows.length?`<div>${rows.map(r=>`<div class="srow ${r.paid?'done':''}"><div><span class="nm">${esc(r.name)}</span> ${r.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'} <span class="muted small">出席 ${r.att} 次</span></div><div class="bal">${money(r.amt)}</div>
-      <div class="acts"><button type="button" class="pay ${r.paid?'ok':'due'}" data-act="ballPaid" data-id="${r.id}">${r.paid?'已收':'未收'}</button></div></div>`).join('')}</div>
+      <div class="acts"><button type="button" class="pay ${r.paid?'ok':'due'}" data-act="ballPaid" data-id="${r.id}">${r.done?'已收（已結清）':r.paid?'已收':'未收'}</button></div></div>`).join('')}</div>
     <div class="row-btns"><button type="button" class="btn sm" data-act="ballAll" data-v="1">全部標示已收</button><button type="button" class="btn sm ghost" data-act="ballAll" data-v="0">全部改回未收</button><button type="button" class="btn sm pri right" data-act="copyBall">複製 LINE 訊息</button></div>`
     :'<p class="muted">這一季還沒有記錄用球。到「本週」記每次用幾顆球，這裡就會算出每個人的球錢。</p>'}
   </section>`;
@@ -814,7 +814,7 @@ function act0(a,el){
     case 'delPurchase':s.purchases.splice(+el.dataset.i,1);save();break;
     case 'renew':{const cur=(s.settle[id]||{}).renew,v=el.dataset.v==='1';s.settle[id]={...(s.settle[id]||{}),renew:cur===v?undefined:v};save();break}
     case 'smode':ui.sm=el.dataset.v;render();window.scrollTo(0,0);break;
-    case 'ballPaid':{const st=s.settle[id]||{};s.settle[id]={...st,ballPaid:!st.ballPaid};save();break}
+    case 'ballPaid':{const st=s.settle[id]||{};if(calc(s).out[id]?.done){toast('他已結清，球錢已算在內。要改的話請先到完整結算取消結清');return}s.settle[id]={...st,ballPaid:!st.ballPaid};save();break}
     case 'ballAll':{const on=el.dataset.v==='1';ballRows(s).forEach(r=>{const st=s.settle[r.id]||{};s.settle[r.id]={...st,ballPaid:on}});save(on?'都標示為已收':'都改回未收');break}
     case 'copyMsg':{const t=personMsg(s,id);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼給他就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
