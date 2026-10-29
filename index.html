@@ -579,9 +579,23 @@ function vBalls(s){
   <p class="muted small">球錢 =（用球數 × ${money(ballPrice())} ＋ 當天場地缺額）÷ 當天出席人數，無條件進位到整數。場地缺額 = 場地費 − 出席人數 × 每人費用（不足 ${state.settings.cap} 人才有）。一桶 ${money(state.settings.bucketPrice)}／${per} 顆可在「結算」最下面的設定修改。</p></section>`;
 }
 function personMsg(s,id){
-  const {out}=calc(s);const o=out[id];if(!o)return '';
-  const court=o.att*fee(),ball=o.ballPaid?0:o.ball;
-  const L=[`哈囉 ${pname(id)}，這季的費用如下：`,`場地 ${o.att}次×${fee()} = ${money(court)}`,`球錢 ${o.ballPaid?'已收':money(ball)}`,`合計 ${money(court+ball)}`];
+  const {out}=calc(s);const o=out[id];if(!o)return '';const st=s.settle[id]||{};const b=Math.round(o.balance);
+  const days=s.dates.filter(d=>getSess(s,d).att?.[id]).map(md);
+  const gapDay=s.dates.some(d=>getSess(s,d).att?.[id]&&gap(s,d)>0);
+  const L=[`${pname(id)} 你好，${s.name} 結算如下：`,`出席 ${o.att} 次${days.length?`（${days.join('、')}）`:''}`];
+  if(o.carry)L.push(`上季結轉 ${signed(o.carry)}`);
+  L.push(o.member?`季費已繳 ${money(o.feePaid)}`:`臨打已付 ${money(o.paid)}`);
+  L.push(`場地費 ${o.att}×${fee()} = ${money(o.att*fee())}`);
+  L.push(o.ballPaid?`球錢 ${money(o.ball)}（已另外收）`:`球錢 ${money(o.ball)}${gapDay?'（含少人場地缺額分攤）':''}`);
+  if(o.member)L.push(`剩餘 ${o.remain} 次`);
+  L.push(`結餘 ${signed(b)}`);
+  let end;
+  if(o.member){
+    if(st.renew===true)end=b>=0?`續約：剩餘 ${money(b)} 折抵下季季費。`:`續約：下季季費需多補 ${money(-b)}。`;
+    else if(st.renew===false)end=b>=0?`不續約：${money(b)} 會退還給你。`:`不續約：需補繳 ${money(-b)}。`;
+    else end=b>=0?`續約的話 ${money(b)} 折抵下季季費；不續約則退還 ${money(b)}。請回覆是否續約。`:`續約的話下季季費需多補 ${money(-b)}；不續約請補繳 ${money(-b)}。請回覆是否續約。`;
+  }else end=b>0?`多繳 ${money(b)}，可退還或留著下次抵。`:b<0?`請補繳 ${money(-b)}。`:'已結清，謝謝！';
+  L.push('',end);
   return L.join('\n');
 }
 function vFullSettle(s){
