@@ -580,8 +580,9 @@ function vBalls(s){
 }
 function personMsg(s,id){
   const {out}=calc(s);const o=out[id];if(!o)return '';
-  const court=o.att*fee();
-  return `${pname(id)} 你好，${s.name} 結算：\n出席 ${o.att} 次\n場地 ${money(court)}\n球錢 ${money(o.ball)}\n合計 ${money(court+o.ball)}`;
+  const court=o.att*fee(),ball=o.ballPaid?0:o.ball;
+  const L=[`${pname(id)} 本季費用`,`場地 ${o.att}次×${fee()} = ${money(court)}`,`球錢 ${o.ballPaid?'已收':money(ball)}`,`合計 ${money(court+ball)}`];
+  return L.join('\n');
 }
 function vFullSettle(s){
   const {ids,out}=calc(s);let refund=0,collect=0,carryOn=0;
