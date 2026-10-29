@@ -87,7 +87,7 @@ function readApi(){
 }
 const API=readApi();
 let code=LS.get('su_code')||'';
-let view=null,busy=false,err='',loginErr='',stamp=0;
+let view=null,busy=false,err='',loginErr='',stamp=0,mode='login',regErr='';
 
 let seq=0;
 function jsonp(params,ms){
@@ -137,7 +137,16 @@ async function sign(on){
   if(!j.ok&&(j.error==='no_event'))login(code,true);
 }
 
-function logout(){LS.del('su_code');code='';view=null;loginErr='';render()}
+function logout(){LS.del('su_code');code='';view=null;loginErr='';mode='login';render()}
+
+async function register(name,c){
+  const j=await call({action:'mreg',code:c,name});
+  if(j.ok){code=c;LS.set('su_code',c);view=j;stamp=Date.now();regErr='';mode='login';return true}
+  regErr=({bad_input:'名字要填，代碼至少 2 個字。',code_taken:'這個代碼已經有人用了，請換一個。',
+    name_taken:'這個名字已經註冊過了。如果是你，請直接用你的代碼登入；忘記代碼請問主辦人。',
+    full:'目前註冊人數太多，請聯絡主辦人。'})[j.error]||'連不上伺服器，請檢查網路後再試一次。';
+  return false;
+}
 
 function loginHtml(){
   return `<div class="login">
@@ -146,7 +155,22 @@ function loginHtml(){
     <form id="lf" autocomplete="off"><input type="text" id="code" placeholder="個人代碼" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" value="${esc(code)}">
     <button class="btn" type="submit"${busy?' disabled':''}>${busy?'登入中…':'登入'}</button></form>
     ${loginErr?`<p class="msg">${esc(loginErr)}</p>`:''}
-    <p class="foot" style="text-align:left;margin-top:24px">代碼由主辦人設定。忘記或重複時，請聯絡主辦人更換。</p>
+    <button class="link" type="button" data-a="toReg" style="margin-top:18px">第一次使用？註冊</button>
+    <p class="foot" style="text-align:left;margin-top:12px">忘記代碼，請聯絡主辦人。</p>
+  </div>`;
+}
+function regHtml(){
+  return `<div class="login">
+    <h2>註冊</h2>
+    <p>填名字、自己取一個代碼，之後就用代碼登入</p>
+    <form id="rf" autocomplete="off">
+      <input type="text" id="rname" placeholder="你的名字" maxlength="20" autocomplete="off" style="margin-bottom:10px">
+      <input type="text" id="rcode" placeholder="自己取一個代碼（至少 2 個字）" maxlength="24" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button class="btn" type="submit"${busy?' disabled':''}>${busy?'註冊中…':'註冊並登入'}</button>
+    </form>
+    ${regErr?`<p class="msg">${esc(regErr)}</p>`:''}
+    <button class="link" type="button" data-a="toLogin" style="margin-top:18px">已經有代碼？回登入</button>
+    <p class="foot" style="text-align:left;margin-top:12px">註冊後就能先報名。主辦人確認你的名字後，才會出現出席與費用紀錄。</p>
   </div>`;
 }
 
@@ -175,6 +199,7 @@ function eventHtml(v){
 
 function recordHtml(v){
   const m=v.me,r=v.rates||{},ss=v.sessions||{};
+  if(m.pending)return `<section class="card"><p class="label">我的紀錄</p><p class="big" style="font-size:20px">等主辦人確認中</p><p class="sub">你已經註冊成功，可以先報名。主辦人確認你的名字後，出席與費用紀錄就會顯示在這裡。</p></section>`;
   const isMember=m.role==='member';
   const ballOwed=m.ballPaid?0:m.ball;
   const rows=(m.rows||[]);
@@ -215,12 +240,22 @@ function mainHtml(){
 function render(){
   const app=$('#app');
   const typed=$('#code')?$('#code').value:null;
+  const typedN=$('#rname')?$('#rname').value:null,typedC=$('#rcode')?$('#rcode').value:null;
   if(!API){app.innerHTML=`<div class="login"><h2>羽球社團報名</h2><p>請用主辦人傳給你的連結開啟這個頁面。</p></div>`;return}
-  app.innerHTML=view?mainHtml():loginHtml();
+  app.innerHTML=view?mainHtml():(mode==='reg'?regHtml():loginHtml());
   if(typed!=null&&$('#code'))$('#code').value=typed;
+  if(typedN!=null&&$('#rname'))$('#rname').value=typedN;
+  if(typedC!=null&&$('#rcode'))$('#rcode').value=typedC;
 }
 
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='rf'){
+    e.preventDefault();
+    const n=$('#rname').value.trim(),c=$('#rcode').value.trim();
+    if(!n||!c){regErr='名字和代碼都要填。';render();return}
+    busy=true;regErr='';render();$('#rname').value=n;$('#rcode').value=c;
+    await register(n,c);busy=false;render();return;
+  }
   if(e.target.id!=='lf')return;e.preventDefault();
   const c=$('#code').value.trim();if(!c)return;
   busy=true;loginErr='';render();$('#code').value=c;
@@ -230,6 +265,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;
   const a=b.dataset.a;
   if(a==='join')sign(true);else if(a==='cancel')sign(false);else if(a==='logout')logout();
+  else if(a==='toReg'){mode='reg';regErr='';render()}else if(a==='toLogin'){mode='login';loginErr='';render()}
 });
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&code&&view&&Date.now()-stamp>15000)login(code,true)});
 setInterval(()=>{if(document.visibilityState==='visible'&&code&&view&&!busy)login(code,true)},45000);

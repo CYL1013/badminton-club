@@ -477,7 +477,7 @@ async function publishSnap(force){
 async function loadSignups(){
   if(!CFG||!CFG.url)return;
   try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
-    if(j&&j.ok){ui.su=j.signups||{};ui.suAt=Date.now();if(ui.tab==='session')render()}else if(j&&j.error==='bad_password'){}}
+    if(j&&j.ok){ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();if(ui.tab==='session')render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
 }
 function signupLink(){
@@ -489,6 +489,17 @@ function signupEntries(s,d){
   const arr=((ui.su||{})[d]||[]).slice().sort((a,b)=>a.t-b.t);
   const rows=arr.map(r=>({r,p:state.people.find(q=>codeKey(q)===r.c)})).filter(x=>x.p);
   return {main:rows.slice(0,cap).map(x=>x.p),wait:rows.slice(cap).map(x=>x.p),unknown:arr.length-rows.length};
+}
+function regCard(s){
+  const regs=Object.entries(ui.regs||{}).filter(([k])=>!state.people.some(p=>codeKey(p)===k));
+  if(!regs.length)return '';
+  return `<div><h3>新註冊（${regs.length}）</h3>${regs.map(([k,r])=>{
+    const same=state.people.find(p=>norm(p.name)===norm(r.name)&&!codeKey(p));
+    const sameCoded=state.people.find(p=>norm(p.name)===norm(r.name)&&codeKey(p));
+    return `<div class="srow"><div><span class="nm">${esc(r.name)}</span> <span class="muted small">代碼 ${esc(r.code||k)}</span></div>
+      <div class="acts">${same?`<button type="button" class="btn sm pri" data-act="regBind" data-code="${esc(k)}" data-id="${same.id}">是 ${esc(same.name)}（綁定現有紀錄）</button>`:''}<button type="button" class="btn sm" data-act="regAdd" data-code="${esc(k)}">${same?'不是，':''}新增成員</button><button type="button" class="btn sm ghost" data-act="regIgnore" data-code="${esc(k)}">忽略</button></div>
+      ${sameCoded?`<p class="warnnote">已經有同名的「${esc(sameCoded.name)}」而且設定過代碼，請確認是不是同一個人。</p>`:''}</div>`}).join('')}
+    <p class="muted small">確認前，他們可以先報名，但看不到費用紀錄。「綁定」會讓同名的舊紀錄（出席、費用）屬於這個代碼。</p></div>`;
 }
 function signupCard(s){
   const d=ui.date;if(!d)return '';
@@ -502,7 +513,8 @@ function signupCard(s){
     <div class="row-btns"><button type="button" class="btn pri" data-act="suImport">匯入到這天的出席</button></div>
     <p class="muted small">會把這天的出席名單換成上面的報名名單（和貼上 LINE 名單一樣），之後還可以手動增減，點錯了也能復原。</p>`
     :`<p class="muted small">${ui.su?'這天還沒有人在報名頁報名。':'報名資料載入中，或點下面「重新整理」。'}</p>`}
-    ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能代碼被改過）。</p>`:''}
+    ${regCard(s)}
+    ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}
     ${dup.size?`<p class="warnnote">有重複的代碼，重複的人無法登入報名頁。請到「成員」把代碼改成不同的。</p>`:''}
     ${noCode?`<p class="warnnote">還有 ${noCode} 位成員沒設定代碼，他們無法登入報名頁。到「成員」點開他的名字就能設定。</p>`:''}
     <hr style="border:none;border-top:1px solid var(--line,#ddd);margin:10px 0">
@@ -867,6 +879,11 @@ function act0(a,el){
     case 'suImport':{const d=ui.date;const {main,wait}=signupEntries(s,d);const x=sess(s,d);const att={};
       main.forEach(p=>{att[p.id]=x.att[p.id]||(isMember(s,p.id)?{}:{paid:0})});x.att=att;x.backup=wait.map(p=>p.id).filter(i=>!att[i]);
       ui.date=d;save(`已匯入 ${Object.keys(att).length} 人到 ${md(d)}`);break}
+    case 'regAdd':case 'regBind':{const k=el.dataset.code,r=(ui.regs||{})[k];if(!r)break;
+      if(state.people.some(p=>codeKey(p)===k)){toast('這個代碼已經有人使用');break}
+      if(a==='regBind'){const p=person(id);p.code=r.code||k}else state.people.push({id:uid(),name:r.name,aliases:[],code:r.code||k});
+      delete ui.regs[k];save(`已加入 ${r.name}`);break}
+    case 'regIgnore':{const k=el.dataset.code;delete (ui.regs||{})[k];jsonpCall(CFG.url,{action:'regdel',token:CFG.pw,code:k}).catch(()=>{});render();toast('已忽略');break}
     case 'suToggle':{const wasOpen=!(state.signup&&state.signup.open===false);state.signup={...(state.signup||{}),open:!wasOpen};save(state.signup.open?'已重新開放報名':'已關閉報名');break}
     case 'suRefresh':loadSignups();publishSnap(true);toast('重新整理中…');break;
     case 'suLink':{const t=signupLink();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('已複製報名頁連結，貼到 LINE 就可以了'),()=>{prompt('複製這個連結',t)});break}
