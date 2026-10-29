@@ -426,7 +426,7 @@ async function flush(){
         setTimeout(flush,3000+Math.random()*1500);
         return;
       }
-      if(j.ok){version=j.version;cacheState();setSync(dirty?'儲存中…':'已存到雲端')}
+      if(j.ok){version=j.version;cacheState();setSync(dirty?'儲存中…':'已存到雲端');schedulePublish()}
       else if(j.error==='conflict'){state=normalize(j.data);version=j.version;dirty=false;cacheState();setSync('已存到雲端');toast('資料在別的裝置被更新了，已重新整理，請確認剛剛的修改還在');render()}
       else{dirty=true;setSync('儲存沒成功，稍後自動重試');setTimeout(flush,4000);return}
     }
@@ -438,14 +438,85 @@ function startPolling(){clearInterval(pollTimer);pollTimer=setInterval(pollRefre
   window.addEventListener('offline',()=>setSync('離線中'))}
 async function pollRefresh(){if(!CFG||writing||dirty)return;
   try{const j=await apiGet(CFG.url,CFG.pw);
-    if(j.ok&&(j.version!==version||mode==='offline')){mode='cloud';state=normalize(j.data);version=j.version;cacheState();render();setSync('已存到雲端')}}
+    if(j.ok&&(j.version!==version||mode==='offline')){mode='cloud';state=normalize(j.data);version=j.version;cacheState();render();setSync('已存到雲端');schedulePublish()}
+    if(ui.tab==='session')loadSignups()}
   catch(e){}}
+/* ---------- member sign-up page support ---------- */
+let lastPub='',pubT=null;
+function schedulePublish(){clearTimeout(pubT);pubT=setTimeout(()=>publishSnap(false),2500)}
+function codeKey(p){return norm(p.code||'')}
+function dupCodes(){const seen={},dup=new Set();state.people.forEach(p=>{const k=codeKey(p);if(!k)return;if(seen[k])dup.add(k);seen[k]=1});return dup}
+function buildSnapshot(){
+  if(!state||!state.seasons||!state.seasons.length)return null;
+  const s=S();const {out}=calc(s);const t=today();const nx=s.dates.find(d=>d>t);const dup=dupCodes();
+  const people={};
+  state.people.forEach(p=>{const k=codeKey(p);if(!k||dup.has(k))return;
+    const o=out[p.id];
+    const rows=s.dates.filter(d=>getSess(s,d).att?.[p.id]).map(d=>({d:md(d),ball:share(s,d)}));
+    const member=!!(o&&o.member);
+    people[k]={name:p.name,role:member?'member':'guest',att:rows.length,rows,
+      court:rows.length*fee(),ball:o?o.ball:0,ballPaid:!!(o&&o.ballPaid),
+      paid:o?(member?o.feePaid:o.paid):0,carry:o?o.carry:0,balance:o?Math.round(o.balance):0,
+      remain:member?o.remain:null,seasonFee:member?o.fee:null,done:!!(o&&o.done)}});
+  const open=!(state.signup&&state.signup.open===false);
+  return {updated:Date.now(),season:s.name,
+    rates:{court:rt('court',s),fee:fee(),ballPrice:Math.round(ballPrice()*100)/100,cap:rt('cap',s)},
+    sessions:{total:s.dates.length,played:s.dates.filter(d=>d<=t&&Object.keys(getSess(s,d).att||{}).length).length},
+    event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open}:null,
+    people};
+}
+async function publishSnap(force){
+  if(!CFG||!loaded||mode!=='cloud'||!state)return;
+  const snap=buildSnapshot();if(!snap)return;
+  const sig=JSON.stringify({...snap,updated:0});
+  if(!force&&sig===lastPub)return;
+  lastPub=sig;ui.pubAt=Date.now();
+  await formSubmit(CFG.url,{action:'publish',token:CFG.pw,data:JSON.stringify(snap)});
+  if(ui.tab==='session')render();
+}
+async function loadSignups(){
+  if(!CFG||!CFG.url)return;
+  try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
+    if(j&&j.ok){ui.su=j.signups||{};ui.suAt=Date.now();if(ui.tab==='session')render()}else if(j&&j.error==='bad_password'){}}
+  catch(e){ui.suErr=true}
+}
+function signupLink(){
+  const a=btoa(unescape(encodeURIComponent(CFG.url))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  return location.origin+location.pathname.replace(/[^/]*$/,'')+'signup.html?a='+a;
+}
+function signupEntries(s,d){
+  const cap=rt('cap',s);
+  const arr=((ui.su||{})[d]||[]).slice().sort((a,b)=>a.t-b.t);
+  const rows=arr.map(r=>({r,p:state.people.find(q=>codeKey(q)===r.c)})).filter(x=>x.p);
+  return {main:rows.slice(0,cap).map(x=>x.p),wait:rows.slice(cap).map(x=>x.p),unknown:arr.length-rows.length};
+}
+function signupCard(s){
+  const d=ui.date;if(!d)return '';
+  const {main,wait,unknown}=signupEntries(s,d);
+  const open=!(state.signup&&state.signup.open===false);
+  const noCode=state.people.filter(p=>!codeKey(p)&&(isMember(s,p.id)||s.dates.some(x=>getSess(s,x).att?.[p.id]))).length;
+  const dup=dupCodes();
+  const nx=s.dates.find(x=>x>today());
+  return `<details class="card" ${main.length||wait.length?'open':''}><summary>網路報名（${md(d)}）${main.length||wait.length?`：${main.length} 人${wait.length?`＋備取 ${wait.length}`:''}`:''}</summary>
+    ${main.length||wait.length?`<div class="chips" style="margin-bottom:8px">${main.map((p,i)=>`<span class="chip">${i+1}. ${esc(p.name)}</span>`).join('')}${wait.map((p,i)=>`<span class="chip" style="opacity:.7">備${i+1} ${esc(p.name)}</span>`).join('')}</div>
+    <div class="row-btns"><button type="button" class="btn pri" data-act="suImport">匯入到這天的出席</button></div>
+    <p class="muted small">會把這天的出席名單換成上面的報名名單（和貼上 LINE 名單一樣），之後還可以手動增減，點錯了也能復原。</p>`
+    :`<p class="muted small">${ui.su?'這天還沒有人在報名頁報名。':'報名資料載入中，或點下面「重新整理」。'}</p>`}
+    ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能代碼被改過）。</p>`:''}
+    ${dup.size?`<p class="warnnote">有重複的代碼，重複的人無法登入報名頁。請到「成員」把代碼改成不同的。</p>`:''}
+    ${noCode?`<p class="warnnote">還有 ${noCode} 位成員沒設定代碼，他們無法登入報名頁。到「成員」點開他的名字就能設定。</p>`:''}
+    <hr style="border:none;border-top:1px solid var(--line,#ddd);margin:10px 0">
+    <p class="small">${nx?`報名頁目前開放報名的是 <b>${md(nx)}</b>（下一個打球日），狀態：<b>${open?'開放中':'已關閉'}</b>`:'本季已經沒有下一個打球日，報名頁不會顯示活動。'}</p>
+    <div class="row-btns"><button type="button" class="btn sm" data-act="suToggle">${open?'關閉報名':'重新開放報名'}</button><button type="button" class="btn sm" data-act="suRefresh">重新整理</button><button type="button" class="btn sm pri" data-act="suLink">複製報名頁連結</button></div>
+    <p class="muted small">把連結貼到 LINE 群組，成員點開後輸入自己的代碼就能報名。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
+  </details>`;
+}
 async function boot(){
   if(!CFG){renderGate();return}
   $('#app').innerHTML=`<div class="loading">載入中…</div>`;
   try{
     const j=await apiGet(CFG.url,CFG.pw);
-    state=normalize(j.data);version=j.version;loaded=true;mode='cloud';cacheState();startPolling();render();
+    state=normalize(j.data);version=j.version;loaded=true;mode='cloud';cacheState();startPolling();render();schedulePublish();loadSignups();
   }catch(err){
     if(err.kind==='api'&&err.error==='bad_password'){renderGate('密碼和後端設定的不一樣，請重新輸入');return}
     const c=loadCache();
@@ -476,7 +547,7 @@ function vSession(s){
   const sh=share(s,d);
   const rows=[...mem,...gst].map((id,i)=>{const m=isMember(s,id);const p=x.att[id].paid||0;
     return `<li><span class="idx">${i+1}</span><span class="nm">${esc(pname(id))}</span>${m?'<span class="tag m">季費</span>':`<span class="tag">臨打</span><button class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`}<button class="x" data-act="rm" data-id="${id}" aria-label="移除 ${esc(pname(id))}">×</button></li>`}).join('');
-  return `${strip}${qdCard(s)}${pendingCard(s)}
+  return `${strip}${qdCard(s)}${pendingCard(s)}${signupCard(s)}
   <div class="stats">
     <div class="stat ${n>cap?'extra':''}"><b>${n}<small style="font-size:15px;color:var(--muted)">/${cap}</small></b><span>出席 · 季費${mem.length} 臨打${gst.length}</span></div>
     <div class="stat"><b>${money(inc)}</b><span>場地收入（場地 ${money(rt('court',s))}）</span></div>
@@ -560,6 +631,8 @@ function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
   return `<div class="pform">
     <label>名字<input type="text" id="pn-${id}" data-ch="pname" data-id="${id}" value="${esc(p.name)}"></label>
     <label>LINE 上的其他稱呼（用逗號分開）<input type="text" id="pa-${id}" data-ch="palias" data-id="${id}" value="${esc((p.aliases||[]).join(', '))}"></label>
+    <label>報名代碼（成員登入報名頁用，想用什麼就填什麼）<input type="text" id="pcode-${id}" data-ch="pcode" data-id="${id}" value="${esc(p.code||'')}" placeholder="例如 C123" autocapitalize="off" autocomplete="off"></label>
+    ${p.code?'':'<p class="muted small" style="margin:-4px 0 0">還沒設定代碼，這個人無法登入報名頁。</p>'}
     <label>這一季身分<select id="pr-${id}" data-ch="prole" data-id="${id}"><option value="m" ${m?'selected':''}>季費會員</option><option value="g" ${m?'':'selected'}>臨打</option></select></label>
     ${m?`<label>本季季費<input type="number" inputmode="numeric" id="pf-${id}" data-ch="pfee" data-id="${id}" value="${memberFee(s,id)}"></label>
     <label>本季已繳<input type="number" inputmode="numeric" id="pp-${id}" data-ch="ppaid" data-id="${id}" value="${s.feePaid[id]||0}"></label>`:''}
@@ -788,9 +861,15 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
 function act0(a,el){
-  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);return}
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);if(ui.tab==='session')loadSignups();return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
+    case 'suImport':{const d=ui.date;const {main,wait}=signupEntries(s,d);const x=sess(s,d);const att={};
+      main.forEach(p=>{att[p.id]=x.att[p.id]||(isMember(s,p.id)?{}:{paid:0})});x.att=att;x.backup=wait.map(p=>p.id).filter(i=>!att[i]);
+      ui.date=d;save(`已匯入 ${Object.keys(att).length} 人到 ${md(d)}`);break}
+    case 'suToggle':{const wasOpen=!(state.signup&&state.signup.open===false);state.signup={...(state.signup||{}),open:!wasOpen};save(state.signup.open?'已重新開放報名':'已關閉報名');break}
+    case 'suRefresh':loadSignups();publishSnap(true);toast('重新整理中…');break;
+    case 'suLink':{const t=signupLink();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('已複製報名頁連結，貼到 LINE 就可以了'),()=>{prompt('複製這個連結',t)});break}
     case 'goPerson':ui.tab='people';ui.open=id;render();window.scrollTo(0,0);break;
     case 'date':ui.date=el.dataset.d;ui.tab='session';ui.centerDate=true;render();window.scrollTo(0,0);break;
     case 'parse':doParse(s);render();break;
@@ -874,6 +953,9 @@ function change0(el){
         save(`${pname(id)} 已取消結清，已還原收款紀錄`);
       }
       break}
+    case 'pcode':{const v=el.value.trim();const k=norm(v);
+      if(k){const dup=state.people.find(q=>q.id!==id&&codeKey(q)===k);if(dup){toast(`代碼「${v}」已經被 ${dup.name} 使用，請換一個`);render();return}}
+      person(id).code=v;save(v?'代碼已更新':'代碼已清除');break}
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;if(s){s.rates=s.rates||{};s.rates[el.dataset.k]=v}save()}break}
     case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
     case 'plan':{const P=planOf(el.dataset.kind);if(!P)break;P[el.dataset.k]=el.value;render();break}
@@ -883,7 +965,7 @@ function change0(el){
 }
 /* ---------- undo: snapshot before every edit that actually changes data ---------- */
 const undoStack=[];
-const NOUNDO=new Set(['tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo']);
+const NOUNDO=new Set(['tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo','suRefresh','suLink']);
 function renderUndo(){const b=$('#undo');if(b)b.hidden=!(loaded&&undoStack.length)}
 function withUndo(fn){
   if(!state||!state.seasons)return fn();
