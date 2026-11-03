@@ -61,6 +61,14 @@ td{text-align:right;padding:8px 0;border-bottom:1px solid var(--line);font-size:
 .login{padding-top:18vh}
 .login h2{font-size:22px;font-weight:600;margin:0 0 4px}
 .login p{color:var(--muted);font-size:14px;margin:0 0 22px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:0 0 16px}
+.tabs button{font:inherit;font-size:14px;padding:10px 2px;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:10px;cursor:pointer;white-space:nowrap}
+.tabs button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.rules{margin:12px 0 0;padding:0;list-style:none}
+.rules li{padding:8px 0;border-bottom:1px solid var(--line);font-size:15px}
+.rules li:last-child{border-bottom:none}
+.fld{display:block;font-size:12px;letter-spacing:.1em;color:var(--muted);margin:14px 0 6px}
+.ok{font-size:14px;margin:10px 0 0;color:var(--accent)}
 .spin{color:var(--muted);text-align:center;padding:40px 0;font-size:14px}
 </style>
 </head>
@@ -87,7 +95,7 @@ function readApi(){
 }
 const API=readApi();
 let code=LS.get('su_code')||'';
-let view=null,busy=false,err='',loginErr='',stamp=0,mode='login',regErr='',editCode=false,codeErr='';
+let codeOk='';let view=null,busy=false,err='',loginErr='',stamp=0,mode='login',regErr='',codeErr='',nameErr='',nameOk='',tab='play',joinErr='';
 
 let seq=0;
 function jsonp(params,ms){
@@ -139,12 +147,25 @@ async function sign(on){
 
 async function changeCode(nc){
   const j=await call({action:'mcode',code,ncode:nc});
-  if(j.ok){code=nc;LS.set('su_code',nc);view=j;stamp=Date.now();editCode=false;codeErr='';return true}
+  if(j.ok){code=nc;LS.set('su_code',nc);view=j;stamp=Date.now();codeErr='';codeOk='代碼已更新，下次登入請用新代碼。';return true}
   codeErr=({bad_code_fmt:'代碼只能是 3～12 位數字，不能有文字或符號。',same_code:'這和你現在的代碼一樣，請輸入新的。',
     code_taken:'這個代碼已經有人用了，請換一個。',bad_code:'目前的代碼失效了，請重新登入。'})[j.error]||'連不上伺服器，請檢查網路後再試一次。';
   return false;
 }
-function logout(){editCode=false;codeErr='';LS.del('su_code');code='';view=null;loginErr='';mode='login';render()}
+async function changeName(n){
+  const j=await call({action:'mname',code,name:n});
+  if(j.ok){view=j;stamp=Date.now();nameErr='';nameOk='名字已更新。';return true}
+  nameOk='';nameErr=({bad_input:'請填名字（20 字內）。',name_taken:'這個名字已經有人用了。',bad_code:'代碼失效了，請重新登入。'})[j.error]||'連不上伺服器，請檢查網路後再試一次。';
+  return false;
+}
+async function joinSeason(){
+  if(busy)return;busy=true;joinErr='';render();
+  const j=await call({action:'mmember',code});busy=false;
+  if(j.ok){view=j;stamp=Date.now()}
+  else joinErr=({members_full:'季費會員名額已經滿了，目前無法報名。',already_member:'你已經是季費會員了。',not_confirmed:'主辦人還沒確認你的名字，確認後才能報名會員。',bad_code:'代碼失效了，請重新登入。'})[j.error]||'連不上伺服器，請再按一次。';
+  render();
+}
+function logout(){codeErr='';LS.del('su_code');code='';view=null;loginErr='';mode='login';render()}
 
 async function register(name,c){
   const j=await call({action:'mreg',code:c,name});
@@ -236,41 +257,93 @@ function recordHtml(v){
   </section>`;
 }
 
+function memberHtml(v){
+  const m=v.me,r=v.rates||{},ms=v.members||{count:0,cap:r.cap||8},ss=v.sessions||{};
+  const cap=ms.cap||8,full=ms.count>=cap,isM=m.role==='member';
+  const total=ss.total||0;
+  let act;
+  if(isM)act=`<div class="result">你是本季的季費會員</div>`;
+  else if(m.pending)act=`<button class="btn ghost" disabled>主辦人確認你的名字後才能報名</button>`;
+  else if(ms.requested)act=`<div class="result">已報名成為會員，請向主辦人繳季費</div>`;
+  else if(full)act=`<button class="btn ghost" disabled>名額已滿（${ms.count} / ${cap}）</button>`;
+  else act=`<button class="btn" data-a="join-member"${busy?' disabled':''}>${busy?'處理中…':'報名成為季費會員'}</button>`;
+  return `<section class="card"><p class="label">本季季費會員</p>
+    <p class="big">${ms.count} / ${cap} 人</p>
+    <p class="sub">${full?'名額已滿，不再收新會員。':`還有 ${cap-ms.count} 個名額，滿 ${cap} 人就不再收。`}</p></section>
+  <section class="card"><p class="label">會員規則</p>
+    <ul class="rules">
+      <li>每週打一次，本季共 ${total||'—'} 次，每次場地 2 小時。</li>
+      <li>季費預繳：每次 ${money(r.fee||0)} × ${total||'—'} 次${total?` ＝ ${money((r.fee||0)*total)}`:''}。</li>
+      <li>沒來的那次，費用不會扣，會留在你的結餘裡。</li>
+      <li>球錢另計，由當天出席的人平分，季末一起結算。</li>
+      <li>報名優先：打球日前最後一個週五 23:59 前，會員先報先排正取；臨打會排在備取。過了之後，依報名先後排順序。</li>
+      <li>臨打每次 ${money(r.fee||0)}，不用預繳。</li>
+      <li>會員名額 ${cap} 人，額滿後不再收。</li>
+    </ul>
+    ${act}${joinErr?`<p class="msg">${esc(joinErr)}</p>`:''}
+  </section>`;
+}
+function profileHtml(v){
+  const m=v.me,isM=m.role==='member';
+  return `<section class="card"><p class="label">成員資料</p>
+    <form id="nf" autocomplete="off"><label class="fld" for="nname" style="margin-top:0">姓名</label>
+    <input type="text" id="nname" maxlength="20" autocomplete="off" value="${esc(m.name)}">
+    <button class="btn" type="submit"${busy?' disabled':''}>儲存姓名</button></form>
+    ${nameErr?`<p class="msg">${esc(nameErr)}</p>`:''}${nameOk?`<p class="ok">${esc(nameOk)}</p>`:''}
+  </section>
+  <section class="card"><p class="label">個人代碼</p>
+    <form id="cf" autocomplete="off"><label class="fld" for="ncode" style="margin-top:0">新代碼（3～12 位數字）</label>
+    <input type="text" id="ncode" placeholder="輸入新代碼" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off">
+    <button class="btn" type="submit"${busy?' disabled':''}>${busy?'儲存中…':'儲存新代碼'}</button></form>
+    ${codeErr?`<p class="msg">${esc(codeErr)}</p>`:''}${codeOk?`<p class="ok">${esc(codeOk)}</p>`:''}
+    <p class="sub" style="font-size:13px">改完之後，下次登入要用新代碼。</p>
+  </section>
+  <section class="card"><p class="label">身分</p>
+    <p class="big" style="font-size:20px">${m.pending?'等主辦人確認':isM?'季費會員':'臨打'}</p>
+    <p class="sub">${isM?'要改成臨打，請聯絡主辦人。':'想成為季費會員，請到「季費會員」頁報名。'}</p>
+  </section>`;
+}
 function mainHtml(){
   const v=view;
   const t=v.updated?new Date(v.updated).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
-  const codeCard=editCode?`<section class="card"><p class="label">修改我的代碼</p>
-    <form id="cf" autocomplete="off"><input type="text" id="ncode" placeholder="新代碼（3～12 位數字）" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off">
-    <button class="btn" type="submit"${busy?' disabled':''}>${busy?'儲存中…':'儲存新代碼'}</button></form>
-    <button class="btn ghost" type="button" data-a="cancelCode" style="margin-top:10px">取消</button>
-    ${codeErr?`<p class="msg">${esc(codeErr)}</p>`:''}
-    <p class="sub" style="font-size:13px">改完之後，下次登入要用新代碼。</p></section>`:'';
-  return `<div class="top"><button class="link" data-a="editCode" style="margin-right:12px;white-space:nowrap">修改代碼</button><h1 style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.me.name)}</h1><button class="link" data-a="logout">登出</button></div>
-    ${codeCard}${eventHtml(v)}${recordHtml(v)}
-    ${!v.event&&err?`<p class="msg">${esc(err)}</p>`:''}
+  const tabs=[['play','打球報名'],['member','季費會員'],['record','出勤紀錄'],['profile','成員資料']];
+  const body=tab==='member'?memberHtml(v):tab==='record'?recordHtml(v):tab==='profile'?profileHtml(v):eventHtml(v);
+  return `<div class="top"><h1 style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.me.name)}</h1><button class="link" data-a="logout">登出</button></div>
+    <div class="tabs">${tabs.map(([k,l])=>`<button type="button" class="${tab===k?'on':''}" data-a="tab" data-v="${k}">${l}</button>`).join('')}</div>
+    ${body}
+    ${!v.event&&err&&tab==='play'?`<p class="msg">${esc(err)}</p>`:''}
     <p class="foot">出席與費用由主辦人更新${t?`（最後更新 ${esc(t)}）`:''}<br>如有疑問請直接問主辦人</p>`;
 }
 
 function render(){
   const app=$('#app');
   const typed=$('#code')?$('#code').value:null;
-  const typedNC=$('#ncode')?$('#ncode').value:null;
+  const typedNC=$('#ncode')?$('#ncode').value:null,typedNN=$('#nname')?$('#nname').value:null;
   const typedN=$('#rname')?$('#rname').value:null,typedC=$('#rcode')?$('#rcode').value:null;
   if(!API){app.innerHTML=`<div class="login"><h2>羽球社團報名</h2><p>請用主辦人傳給你的連結開啟這個頁面。</p></div>`;return}
   app.innerHTML=view?mainHtml():(mode==='reg'?regHtml():loginHtml());
   if(typed!=null&&$('#code'))$('#code').value=typed;
   if(typedNC!=null&&$('#ncode'))$('#ncode').value=typedNC;
+  if(typedNN!=null&&$('#nname'))$('#nname').value=typedNN;
   if(typedN!=null&&$('#rname'))$('#rname').value=typedN;
   if(typedC!=null&&$('#rcode'))$('#rcode').value=typedC;
 }
 
 document.addEventListener('input',e=>{if(e.target.id==='code'||e.target.id==='rcode'||e.target.id==='ncode'){const v=e.target.value.replace(/\D/g,'');if(v!==e.target.value)e.target.value=v}});
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='nf'){
+    e.preventDefault();
+    const n=$('#nname').value.replace(/\s+/g,' ').trim();
+    if(!n){nameErr='請填名字（20 字內）。';nameOk='';render();return}
+    if(n===view.me.name){nameErr='';nameOk='名字沒有變。';render();return}
+    busy=true;nameErr='';nameOk='';codeErr='';codeOk='';render();$('#nname').value=n;
+    await changeName(n);busy=false;render();return;
+  }
   if(e.target.id==='cf'){
     e.preventDefault();
     const nc=$('#ncode').value.trim();
     if(!/^\d{3,12}$/.test(nc)){codeErr='代碼只能是 3～12 位數字，不能有文字或符號。';render();return}
-    busy=true;codeErr='';render();$('#ncode').value=nc;
+    busy=true;codeErr='';codeOk='';nameErr='';nameOk='';render();$('#ncode').value=nc;
     await changeCode(nc);busy=false;render();return;
   }
   if(e.target.id==='rf'){
@@ -290,7 +363,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;
   const a=b.dataset.a;
   if(a==='join')sign(true);else if(a==='cancel')sign(false);else if(a==='logout')logout();
-  else if(a==='editCode'){editCode=true;codeErr='';render();const i=$('#ncode');if(i)i.focus()}else if(a==='cancelCode'){editCode=false;codeErr='';render()}
+  else if(a==='tab'){tab=b.dataset.v;codeErr='';codeOk='';nameErr='';nameOk='';joinErr='';render();window.scrollTo(0,0)}else if(a==='join-member')joinSeason();
   else if(a==='toReg'){mode='reg';regErr='';render()}else if(a==='toLogin'){mode='login';loginErr='';render()}
 });
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&code&&view&&Date.now()-stamp>15000)login(code,true)});

@@ -500,6 +500,15 @@ async function loadSignups(){
       });
       if(changed){save('有成員自己改了報名代碼，已同步')}
       if(done.length)jsonpCall(CFG.url,{action:'rendel',token:CFG.pw,codes:done.join(',')}).catch(()=>{});
+      // 成員自己改名字、報名成為季費會員：套用到帳本
+      {const rq=j.reqs||{};const rdone=[];const sN=S();let rch=[];
+        Object.keys(rq).forEach(k=>{const p=state&&state.people.find(q=>codeKey(q)===k);if(!p){rdone.push(k);return}
+          const r=rq[k];
+          if(r.name&&r.name!==p.name){p.aliases=[...new Set([...(p.aliases||[]),p.name])];p.name=r.name;rch.push(`${r.name} 改了名字`)}
+          if(r.member&&sN&&!sN.members.includes(p.id)){if(sN.members.length<rt('cap',sN)){sN.members.push(p.id);rch.push(`${p.name} 報名成為季費會員（記得收季費）`)}}
+          rdone.push(k)});
+        if(rch.length)save(rch.join('；'));
+        if(rdone.length)jsonpCall(CFG.url,{action:'reqdel',token:CFG.pw,codes:rdone.join(',')}).catch(()=>{})}
       ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();
       if(syncAllWeb())save();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
