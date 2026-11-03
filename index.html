@@ -807,7 +807,7 @@ function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
     ${m?`<label>本季季費<input type="number" inputmode="numeric" id="pf-${id}" data-ch="pfee" data-id="${id}" value="${memberFee(s,id)}"></label>
     <label>本季已繳<input type="number" inputmode="numeric" id="pp-${id}" data-ch="ppaid" data-id="${id}" value="${s.feePaid[id]||0}"></label>`:''}
     <label>上季結轉（正數＝可折抵）<input type="number" inputmode="numeric" id="pc-${id}" data-ch="pcarry" data-id="${id}" value="${s.carry[id]||0}"></label>
-  </div><div class="row-btns">${m&&o&&o.due>0?`<button class="btn sm pri" data-act="feeFull" data-id="${id}">季費繳清（${money(o.due)}）</button>`:''}${o&&o.att?'':`<button class="btn sm warn ghost" data-act="delPerson" data-id="${id}">刪除這個人</button>`}</div>`}
+  </div><div class="row-btns">${m&&o&&o.due>0?`<button class="btn sm pri" data-act="feeFull" data-id="${id}">季費繳清（${money(o.due)}）</button>`:''}<button class="btn sm warn ghost" data-act="delPerson" data-id="${id}">${o&&o.att?'從本季移除這個人':'刪除這個人'}</button></div>`}
 function vPeople(s){
   const {ids,out}=calc(s);const cap=rt('cap',s);
   const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
@@ -1061,8 +1061,16 @@ function act0(a,el){
     case 'cell':cycleCell(s,id,el.dataset.d);break;
     case 'open':ui.open=ui.open===id?null:id;render();break;
     case 'feeFull':{const o=calc(s).out[id];s.feePaid[id]=(s.feePaid[id]||0)+o.due;save(`${pname(id)} 季費已繳清`);break}
-    case 'delPerson':{const used=state.seasons.some(x=>x.members.includes(id)&&x.id!==s.id||Object.values(x.sessions).some(q=>q.att&&q.att[id]));if(used){toast('這個人在其他季有紀錄，不能刪除');return}
-      s.members=s.members.filter(x=>x!==id);state.people=state.people.filter(p=>p.id!==id);ui.open=null;save('已刪除');break}
+    case 'delPerson':{
+      const other=state.seasons.some(x=>x.id!==s.id&&(x.members.includes(id)||Object.values(x.sessions).some(q=>q.att&&q.att[id])));
+      const here=Object.values(s.sessions).some(q=>(q.att&&q.att[id])||(q.backup||[]).includes(id));
+      const nm=pname(id);
+      if(!confirm(here?`${nm} 這一季有出席或報名紀錄，移除後這些紀錄會一起清掉（可以用「復原」找回）。確定移除？`:`確定刪除 ${nm}？`))return;
+      s.members=s.members.filter(x=>x!==id);
+      Object.values(s.sessions).forEach(q=>{if(q.att)delete q.att[id];if(q.hold)delete q.hold[id];q.backup=(q.backup||[]).filter(x=>x!==id);q.ord=(q.ord||[]).filter(x=>x!==id);q.web=(q.web||[]).filter(x=>x!==id)});
+      delete s.feePaid[id];delete s.carry[id];delete s.memberFee[id];delete s.settle[id];
+      if(!other)state.people=state.people.filter(p=>p.id!==id);
+      ui.open=null;save(other?`已從本季移除 ${nm}（他在其他季有紀錄，名字保留）`:`已刪除 ${nm}`);break}
     case 'mkMember':{if(!s.members.includes(id))s.members.push(id);save(`${pname(id)} 設為季費會員`);break}
     case 'newPerson':{const nm=$('#newName').value.trim();if(!nm)return;if(findPerson(nm)){toast('已經有這個人了');return}const p=findOrCreate(nm);if($('#newRole').value==='m')s.members.push(p.id);save(`已新增 ${nm}`);break}
     case 'addPurchase':{const n=+$('#buyN').value,pr=+$('#buyP').value,d=$('#buyDate').value||today();if(!(n>0))return;s.purchases.push({date:d,buckets:n,price:pr||state.settings.bucketPrice});s.purchases.sort((a,b)=>a.date<b.date?-1:1);save('已記錄');break}
