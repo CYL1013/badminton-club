@@ -145,6 +145,8 @@ table.g tfoot td{color:var(--muted)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:4px 11px;font-size:13px}
 .seg button.on{background:var(--court);color:var(--court-ink)}
+.seg.wide{display:flex;width:100%}
+.seg.wide button{flex:1;padding:9px 6px;font-size:14px}
 .hint{font-size:13px}
 label.ck{display:inline-flex;gap:6px;align-items:center;font-size:13px}
 .note{font-size:13px;color:var(--muted);background:var(--chip);border-radius:8px;padding:8px 10px}
@@ -180,8 +182,8 @@ nav#tabs button.on{color:var(--court);border-top-color:var(--court);font-weight:
   <button data-act="tab" data-v="session">本週</button>
   <button data-act="tab" data-v="grid">出席表</button>
   <button data-act="tab" data-v="people">成員</button>
-  <button data-act="tab" data-v="balls">羽球</button>
   <button data-act="tab" data-v="settle">結算</button>
+  <button data-act="tab" data-v="more">更多</button>
 </div></nav>
 <div id="toast" hidden></div>
 <button id="undo" type="button" data-act="undo" hidden>↶ 復原上一步</button>
@@ -192,6 +194,8 @@ let state=null, loaded=false, version=null, mode='loading';
 let CFG=null;try{const t=localStorage.getItem('bm_cfg');CFG=t?JSON.parse(t):null}catch(e){CFG=null}
 const ui={tab:'session',date:null,lineText:'',parse:null,open:null,ns:null,qd:null,centerDate:true,sm:'full'};
 try{ui.tab=localStorage.getItem('bm_tab')||'session'}catch(e){}
+if(ui.tab==='balls')ui.tab='more';
+ui.mo='balls';ui.src='web';
 
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -472,12 +476,12 @@ async function publishSnap(force){
   if(!force&&sig===lastPub)return;
   lastPub=sig;ui.pubAt=Date.now();
   await formSubmit(CFG.url,{action:'publish',token:CFG.pw,data:JSON.stringify(snap)});
-  if(ui.tab==='session')render();
+  if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render();
 }
 async function loadSignups(){
   if(!CFG||!CFG.url)return;
   try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
-    if(j&&j.ok){ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();if(ui.tab==='session')render()}else if(j&&j.error==='bad_password'){}}
+    if(j&&j.ok){ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
 }
 function signupLink(){
@@ -490,8 +494,62 @@ function signupEntries(s,d){
   const rows=arr.map(r=>({r,p:state.people.find(q=>codeKey(q)===r.c)})).filter(x=>x.p);
   return {main:rows.slice(0,cap).map(x=>x.p),wait:rows.slice(cap).map(x=>x.p),unknown:arr.length-rows.length};
 }
+function seg(items,cur,act){return `<span class="seg wide">${items.map(([v,l])=>`<button type="button" class="${cur===v?'on':''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</span>`}
+function pendingRegs(){return Object.entries(ui.regs||{}).filter(([k])=>!state.people.some(p=>codeKey(p)===k))}
+function vMore(s){
+  const bar=`<div class="row-btns">${seg([['balls','買球・用球'],['signup','報名頁'],['settings','設定']],ui.mo,'mmode')}</div>`;
+  return bar+(ui.mo==='signup'?vSignupAdmin(s):ui.mo==='settings'?vSettings(s):vBalls(s));
+}
+function vSignupAdmin(s){
+  const open=!(state.signup&&state.signup.open===false);
+  const dup=dupCodes();
+  const noCode=state.people.filter(p=>!codeKey(p)&&(isMember(s,p.id)||s.dates.some(x=>getSess(s,x).att?.[p.id])));
+  const badFmt=state.people.filter(p=>codeKey(p)&&!/^\d{3,12}$/.test(codeKey(p)));
+  const nx=s.dates.find(x=>x>today());
+  return `<section class="card"><h2>報名頁</h2>
+    <p class="small">${nx?`目前開放報名的是 <b>${md(nx)}（週${wd(nx)}）</b>，也就是下一個打球日。`:'本季已經沒有下一個打球日，報名頁不會顯示活動。'}</p>
+    <div class="row-btns"><span class="small">狀態：<b>${open?'開放中':'已關閉'}</b></span><button type="button" class="btn sm" data-act="suToggle">${open?'關閉報名':'重新開放報名'}</button></div>
+    <h3 style="margin-top:14px">分享給成員</h3>
+    <div class="row-btns"><button type="button" class="btn pri" data-act="suLink">複製報名頁連結</button><button type="button" class="btn sm" data-act="suRefresh">重新整理資料</button></div>
+    <p class="muted small">把連結貼到 LINE 群組。成員第一次用代碼登入，也可以自己註冊（代碼只能是數字），你在「本週 → 名單來源」確認後，他才看得到自己的出席與費用。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
+  </section>
+  <section class="card"><h2>代碼檢查</h2>
+    ${dup.size||noCode.length||badFmt.length?'':'<p class="muted">所有成員的代碼都正常。</p>'}
+    ${dup.size?`<p class="warnnote">有重複的代碼，重複的人無法登入報名頁。請到「成員」改成不同的。</p>`:''}
+    ${badFmt.length?`<p class="warnnote">這些人的代碼不是 3～12 位數字，請改一下：${badFmt.map(p=>esc(p.name)).join('、')}</p>`:''}
+    ${noCode.length?`<p class="warnnote">還沒設定代碼（無法登入報名頁）：${noCode.map(p=>esc(p.name)).join('、')}。到「成員」點開他的名字設定。</p>`:''}
+  </section>`;
+}
+function vSettings(s){
+  return `<section class="card"><h2>費用設定</h2><div class="pform">
+    ${[['court','場地費（每次）'],['cap','每次預計人數'],['fee','每人每次'],['bucketPrice','一桶球價錢'],['perBucket','一桶幾顆']].map(([k,l])=>`<label>${l}<input type="number" inputmode="numeric" id="set-${k}" data-ch="set" data-k="${k}" value="${rt(k,s)}"></label>`).join('')}
+    </div><p class="muted small">改了只影響「這一季」，之前結算過的季不會變動；同時會成為下一季的預設值。</p></section>
+  <section class="card"><h2>資料與登入</h2>
+    <div class="row-btns"><button class="btn sm" data-act="copy">複製備份資料</button><button class="btn sm warn ghost" data-act="logout">清除本機登入設定</button></div>
+    <p class="muted small">資料存在你的 Google 試算表，另外「Log」工作表會留最近 300 次的存檔備份。</p></section>`;
+}
+function srcCard(s,d,n){
+  const {main,wait,unknown}=signupEntries(s,d);
+  const regs=pendingRegs();
+  const src=ui.parse?'line':(ui.src||'web');
+  const hasWeb=main.length||wait.length;
+  const open=!n||ui.parse||regs.length||ui.srcOpen;
+  const web=`${hasWeb?`<div class="chips" style="margin-bottom:8px">${main.map((p,i)=>`<span class="chip">${i+1}. ${esc(p.name)}</span>`).join('')}${wait.map((p,i)=>`<span class="chip" style="opacity:.7">備${i+1} ${esc(p.name)}</span>`).join('')}</div>
+      <div class="row-btns"><button type="button" class="btn pri" data-act="suImport">匯入到這天的出席</button><button type="button" class="btn sm" data-act="suRefresh">重新整理</button></div>
+      <p class="muted small">會把這天的出席名單換成上面的報名名單，之後還能手動增減，點錯了也能復原。</p>`
+      :`<p class="muted small">${ui.su?'這天還沒有人在報名頁報名。':'報名資料載入中…'}</p><div class="row-btns"><button type="button" class="btn sm" data-act="suRefresh">重新整理</button></div>`}
+    ${regCard(s)}
+    ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}`;
+  const line=`    <textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
+    <div class="row-btns"><button class="btn pri" data-act="parse">讀取名單</button>${ui.parse?'<button class="btn ghost" data-act="cancelParse">取消</button>':''}</div>
+    ${ui.parse?parsePreview(s):''}`;
+  return `<details class="card" ${open?'open':''}><summary>名單來源${hasWeb?`・網路報名 ${main.length}${wait.length?`＋備${wait.length}`:''} 人`:''}${regs.length?`・新註冊 ${regs.length}`:''}</summary>
+    <div class="row-btns" style="margin-bottom:10px">${seg([['web','網路報名'],['line','貼上 LINE']],src,'srcMode')}</div>
+    ${src==='web'?web:line}
+  </details>`;
+}
 function regCard(s){
-  const regs=Object.entries(ui.regs||{}).filter(([k])=>!state.people.some(p=>codeKey(p)===k));
+  const regs=pendingRegs();
   if(!regs.length)return '';
   return `<div><h3>新註冊（${regs.length}）</h3>${regs.map(([k,r])=>{
     const same=state.people.find(p=>norm(p.name)===norm(r.name)&&!codeKey(p));
@@ -500,28 +558,6 @@ function regCard(s){
       <div class="acts">${same?`<button type="button" class="btn sm pri" data-act="regBind" data-code="${esc(k)}" data-id="${same.id}">是 ${esc(same.name)}（綁定現有紀錄）</button>`:''}<button type="button" class="btn sm" data-act="regAdd" data-code="${esc(k)}">${same?'不是，':''}新增成員</button><button type="button" class="btn sm ghost" data-act="regIgnore" data-code="${esc(k)}">忽略</button></div>
       ${sameCoded?`<p class="warnnote">已經有同名的「${esc(sameCoded.name)}」而且設定過代碼，請確認是不是同一個人。</p>`:''}</div>`}).join('')}
     <p class="muted small">確認前，他們可以先報名，但看不到費用紀錄。「綁定」會讓同名的舊紀錄（出席、費用）屬於這個代碼。</p></div>`;
-}
-function signupCard(s){
-  const d=ui.date;if(!d)return '';
-  const {main,wait,unknown}=signupEntries(s,d);
-  const open=!(state.signup&&state.signup.open===false);
-  const noCode=state.people.filter(p=>!codeKey(p)&&(isMember(s,p.id)||s.dates.some(x=>getSess(s,x).att?.[p.id]))).length;
-  const dup=dupCodes();
-  const nx=s.dates.find(x=>x>today());
-  return `<details class="card" ${main.length||wait.length?'open':''}><summary>網路報名（${md(d)}）${main.length||wait.length?`：${main.length} 人${wait.length?`＋備取 ${wait.length}`:''}`:''}</summary>
-    ${main.length||wait.length?`<div class="chips" style="margin-bottom:8px">${main.map((p,i)=>`<span class="chip">${i+1}. ${esc(p.name)}</span>`).join('')}${wait.map((p,i)=>`<span class="chip" style="opacity:.7">備${i+1} ${esc(p.name)}</span>`).join('')}</div>
-    <div class="row-btns"><button type="button" class="btn pri" data-act="suImport">匯入到這天的出席</button></div>
-    <p class="muted small">會把這天的出席名單換成上面的報名名單（和貼上 LINE 名單一樣），之後還可以手動增減，點錯了也能復原。</p>`
-    :`<p class="muted small">${ui.su?'這天還沒有人在報名頁報名。':'報名資料載入中，或點下面「重新整理」。'}</p>`}
-    ${regCard(s)}
-    ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}
-    ${dup.size?`<p class="warnnote">有重複的代碼，重複的人無法登入報名頁。請到「成員」把代碼改成不同的。</p>`:''}
-    ${noCode?`<p class="warnnote">還有 ${noCode} 位成員沒設定代碼，他們無法登入報名頁。到「成員」點開他的名字就能設定。</p>`:''}
-    <hr style="border:none;border-top:1px solid var(--line,#ddd);margin:10px 0">
-    <p class="small">${nx?`報名頁目前開放報名的是 <b>${md(nx)}</b>（下一個打球日），狀態：<b>${open?'開放中':'已關閉'}</b>`:'本季已經沒有下一個打球日，報名頁不會顯示活動。'}</p>
-    <div class="row-btns"><button type="button" class="btn sm" data-act="suToggle">${open?'關閉報名':'重新開放報名'}</button><button type="button" class="btn sm" data-act="suRefresh">重新整理</button><button type="button" class="btn sm pri" data-act="suLink">複製報名頁連結</button></div>
-    <p class="muted small">把連結貼到 LINE 群組，成員點開後輸入自己的代碼就能報名。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
-  </details>`;
 }
 async function boot(){
   if(!CFG){renderGate();return}
@@ -559,7 +595,7 @@ function vSession(s){
   const sh=share(s,d);
   const rows=[...mem,...gst].map((id,i)=>{const m=isMember(s,id);const p=x.att[id].paid||0;
     return `<li><span class="idx">${i+1}</span><span class="nm">${esc(pname(id))}</span>${m?'<span class="tag m">季費</span>':`<span class="tag">臨打</span><button class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`}<button class="x" data-act="rm" data-id="${id}" aria-label="移除 ${esc(pname(id))}">×</button></li>`}).join('');
-  return `${strip}${qdCard(s)}${pendingCard(s)}${signupCard(s)}
+  return `${strip}${qdCard(s)}${pendingCard(s)}
   <div class="stats">
     <div class="stat ${n>cap?'extra':''}"><b>${n}<small style="font-size:15px;color:var(--muted)">/${cap}</small></b><span>出席 · 季費${mem.length} 臨打${gst.length}</span></div>
     <div class="stat"><b>${money(inc)}</b><span>場地收入（場地 ${money(rt('court',s))}）</span></div>
@@ -568,11 +604,7 @@ function vSession(s){
   </div>
   ${n>cap?`<p class="note">超過 ${cap} 人，多 ${n-cap} 人，當天多收 ${money(extra(s,d))}（已記錄）。</p>`:''}
   ${gap(s,d)?`<p class="note">只有 ${n} 人，場地少收 ${money(gap(s,d))}，這筆會併入當天球錢，由出席的人平分。</p>`:''}
-  <details class="card" ${ui.parse||!n?'open':''}><summary>貼上 LINE 報名</summary>
-    <textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
-    <div class="row-btns"><button class="btn pri" data-act="parse">讀取名單</button>${ui.parse?'<button class="btn ghost" data-act="cancelParse">取消</button>':''}</div>
-    ${ui.parse?parsePreview(s):''}
-  </details>
+  ${srcCard(s,d,n)}
   <section class="card"><div class="row-btns"><h2>${md(d)}（週${wd(d)}）出席</h2>${owe.length?`<button class="btn sm right" data-act="payAll">臨打全部已收</button>`:''}</div>
     ${n?`<ul class="list">${rows}</ul>`:'<p class="muted">還沒有人。貼上 LINE 名單，或從下面點名加入。</p>'}
     ${absent.length?`<div><h3>季費會員沒來（點一下加入）</h3><div class="chips" style="margin-top:6px">${absent.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
@@ -592,13 +624,15 @@ function pendingCard(s){
   const owe=live.filter(id=>!out[id].member&&out[id].unpaid>0);
   const low=live.filter(id=>out[id].member&&out[id].remain>=0&&out[id].remain<=2);
   const stale=ids.filter(id=>out[id].stale);
+  const regs=pendingRegs();
   const t=today();const nx=s.dates.find(d=>d>=t);
   const line=nx?`<p class="small">下次打球 <b>${md(nx)}（週${wd(nx)}）</b>，目前報名 ${Object.keys(getSess(s,nx).att||{}).length}/${rt('cap',s)} 人。</p>`:'';
   const grp=(title,list)=>list.length?`<div><h3>${title}</h3><div class="chips" style="margin-top:6px">${list.join('')}</div></div>`:'';
-  const total=dueM.length+owe.length+low.length+stale.length;
-  return `<details class="card" ${total?'open':''}><summary>待處理${total?`（${total}）`:'：目前都處理好了 ✓'}</summary>
+  const parts=[dueM.length?`季費欠 ${dueM.length}`:'',owe.length?`臨打欠 ${owe.length}`:'',low.length?`剩≤2次 ${low.length}`:'',stale.length?`資料有變動 ${stale.length}`:'',regs.length?`新註冊 ${regs.length}`:''].filter(Boolean);
+  return `<details class="card"><summary>待處理${parts.length?'：'+parts.join('・'):'：目前都處理好了 ✓'}</summary>
     ${line}${grp('季費還沒繳完',dueM.map(id=>chip(id,money(out[id].due))))}${grp('臨打還沒付',owe.map(id=>chip(id,money(out[id].unpaid))))}${grp('剩餘次數 ≤ 2',low.map(id=>chip(id,out[id].remain+' 次')))}${grp('結清後資料有變動',stale.map(id=>chip(id,'')))}
-    <p class="muted small">點名字會跳到他的成員資料。</p></details>`;
+    ${regs.length?`<p class="warnnote">有 ${regs.length} 位新註冊等你確認，請到下面「名單來源」處理。</p>`:''}
+    ${parts.length?'<p class="muted small">點名字會跳到他的成員資料。</p>':''}</details>`;
 }
 function qdCard(s){
   if(!ui.qd)return '';
@@ -643,7 +677,7 @@ function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
   return `<div class="pform">
     <label>名字<input type="text" id="pn-${id}" data-ch="pname" data-id="${id}" value="${esc(p.name)}"></label>
     <label>LINE 上的其他稱呼（用逗號分開）<input type="text" id="pa-${id}" data-ch="palias" data-id="${id}" value="${esc((p.aliases||[]).join(', '))}"></label>
-    <label>報名代碼（成員登入報名頁用，想用什麼就填什麼）<input type="text" id="pcode-${id}" data-ch="pcode" data-id="${id}" value="${esc(p.code||'')}" placeholder="例如 C123" autocapitalize="off" autocomplete="off"></label>
+    <label>報名代碼（成員登入報名頁用，只能是數字）<input type="text" id="pcode-${id}" data-ch="pcode" data-id="${id}" value="${esc(p.code||'')}" placeholder="3～12 位數字，例如 1234" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off"></label>
     ${p.code?'':'<p class="muted small" style="margin:-4px 0 0">還沒設定代碼，這個人無法登入報名頁。</p>'}
     <label>這一季身分<select id="pr-${id}" data-ch="prole" data-id="${id}"><option value="m" ${m?'selected':''}>季費會員</option><option value="g" ${m?'':'selected'}>臨打</option></select></label>
     ${m?`<label>本季季費<input type="number" inputmode="numeric" id="pf-${id}" data-ch="pfee" data-id="${id}" value="${memberFee(s,id)}"></label>
@@ -726,17 +760,12 @@ function vFullSettle(s){
       <div class="acts">${o.member?`<span class="seg"><button class="${st.renew===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button class="${st.renew===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`:''}<span class="hint">${hint}</span>
       <button type="button" class="btn sm" data-act="copyMsg" data-id="${id}">複製訊息</button><label class="ck right"><input type="checkbox" id="done-${id}" data-ch="done" data-id="${id}" ${done?'checked':''}>已結清</label></div></div>`}).join('');
   return `<section class="card"><h2>${esc(s.name)} 結算</h2>
-    <p class="muted small">結餘 = 已繳 − 出席次數 × ${fee()} − 球錢（＋上季結轉）。季費會員的結餘就是「剩餘次數的錢 − 球錢」。續約的人結餘會帶到下一季折抵；勾「已結清」代表已經現金收／退完，不再帶過去。</p>
+    <p class="muted small">結餘 = 已繳 − 場地 − 球錢（＋上季結轉）。勾「已結清」代表現金收／退完了，不會再帶到下一季。要開新的一季，請到「續約・開新季」。</p>
     <div class="totals"><div><h3>要退</h3><span class="bal pos">${money(refund)}</span></div><div><h3>要收</h3><span class="bal neg">${money(collect)}</span></div><div><h3>帶到下季折抵</h3><span class="bal">${signed(carryOn)}</span></div></div>
-    <div>${rows||'<p class="muted">這一季還沒有資料。</p>'}</div></section>
-  <section class="card" id="ns-card"><h2>開新的一季</h2>${ui.ns?nsForm(s):`<p class="muted small">建立下一季的日期和季費會員。沒勾「已結清」的人，結餘會自動帶過去。</p><button class="btn pri" data-act="newSeason" style="align-self:flex-start">開始設定下一季</button>`}</section>
-  <details class="card"><summary>費用設定與後端</summary><div class="pform">
-    ${[['court','場地費（每次）'],['cap','每次預計人數'],['fee','每人每次'],['bucketPrice','一桶球價錢'],['perBucket','一桶幾顆']].map(([k,l])=>`<label>${l}<input type="number" inputmode="numeric" id="set-${k}" data-ch="set" data-k="${k}" value="${rt(k,s)}"></label>`).join('')}
-  </div><p class="muted small">改了只影響「這一季」，之前結算過的季不會變動；同時會成為下一季的預設值。</p>
-  <div class="row-btns"><button class="btn sm" data-act="copy">複製備份資料</button><button class="btn sm warn ghost" data-act="logout">清除本機登入設定</button></div></details>`;
+    <div>${rows||'<p class="muted">這一季還沒有資料。</p>'}</div></section>`;
 }
 function vSettle(s){
-  const tog=`<div class="row-btns"><span class="seg"><button type="button" class="${ui.sm!=='ball'?'on':''}" data-act="smode" data-v="full">完整結算</button><button type="button" class="${ui.sm==='ball'?'on':''}" data-act="smode" data-v="ball">只結算球錢</button><button type="button" class="${ui.sm==='renew'?'on':''}" data-act="smode" data-v="renew">續約總表</button></span></div>`;
+  const tog=`<div class="row-btns">${seg([['full','完整結算'],['ball','只結算球錢'],['renew','續約・開新季']],ui.sm||'full','smode')}</div>`;
   return tog+(ui.sm==='ball'?vBallSettle(s):ui.sm==='renew'?vRenew(s):vFullSettle(s));
 }
 function vRenew(s){
@@ -758,7 +787,7 @@ function vRenew(s){
     <div class="totals"><div><h3>預計要收</h3><span class="bal neg">${money(pay)}</span></div><div><h3>預計要退</h3><span class="bal pos">${money(ref)}</span></div><div><h3>還沒決定</h3><span class="bal">${undec} 人</span></div></div>
     <div>${rows||'<p class="muted">這一季沒有季費會員。</p>'}</div></section>
   ${guests?`<section class="card"><h2>臨打還沒結清</h2>${guests}</section>`:''}
-  <button type="button" class="btn pri" data-act="newSeason" style="align-self:flex-start">確認，開始設定下一季</button>`;
+  <section class="card" id="ns-card"><h2>開新的一季</h2>${ui.ns?nsForm(s):`<p class="muted small">續約的人，結餘會自動折抵下季季費；沒勾「已結清」的人，結餘會帶到下一季。</p><button type="button" class="btn pri" data-act="newSeason" style="align-self:flex-start">確認，開始設定下一季</button>`}</section>`;
 }
 function ballRows(s){
   const {ids,out}=calc(s);
@@ -831,7 +860,7 @@ function render(){
     if(!loaded){app.innerHTML=`<div class="loading">載入中…</div>`;return}
     if(!state||!state.seasons.length){if(!state)state=normalize({});app.innerHTML=`<div class="wrap">${header(null)}${vEmpty()}</div>`;return}
     const s=S();
-    const v={session:vSession,grid:vGrid,people:vPeople,balls:vBalls,settle:vSettle}[ui.tab]||vSession;
+    const v={session:vSession,grid:vGrid,people:vPeople,more:vMore,balls:vMore,settle:vSettle}[ui.tab]||vSession;
     app.innerHTML=`<div class="wrap">${header(s)}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
     document.querySelectorAll('[data-keep]').forEach(n=>{if(keep[n.dataset.keep]!=null)n.scrollLeft=keep[n.dataset.keep]});
     if(ui.centerDate){ui.centerDate=false;const on=document.querySelector('.dchip.on'),bar=document.querySelector('.dates');
@@ -873,9 +902,11 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
 function act0(a,el){
-  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);if(ui.tab==='session')loadSignups();return}
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;if(ui.tab==='session')loadSignups();return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
+    case 'mmode':ui.mo=el.dataset.v;render();window.scrollTo(0,0);if(ui.mo==='signup')loadSignups();break;
+    case 'srcMode':ui.src=el.dataset.v;ui.srcOpen=true;render();break;
     case 'suImport':{const d=ui.date;const {main,wait}=signupEntries(s,d);const x=sess(s,d);const att={};
       main.forEach(p=>{att[p.id]=x.att[p.id]||(isMember(s,p.id)?{}:{paid:0})});x.att=att;x.backup=wait.map(p=>p.id).filter(i=>!att[i]);
       ui.date=d;save(`已匯入 ${Object.keys(att).length} 人到 ${md(d)}`);break}
@@ -914,7 +945,7 @@ function act0(a,el){
     case 'ballAll':{const on=el.dataset.v==='1';ballRows(s).forEach(r=>{const st=s.settle[r.id]||{};s.settle[r.id]={...st,ballPaid:on}});save(on?'都標示為已收':'都改回未收');break}
     case 'copyMsg':{const t=personMsg(s,id);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼給他就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
-    case 'newSeason':ui.ns=nsDefaults(s);ui.sm='full';render();{const c=document.getElementById('ns-card');if(c)c.scrollIntoView()}break;
+    case 'newSeason':ui.ns=nsDefaults(s);ui.sm='renew';render();{const c=document.getElementById('ns-card');if(c)c.scrollIntoView()}break;
     case 'cancelNs':ui.ns=null;render();break;
     case 'planSkip':{const P=planOf(el.dataset.kind),d=el.dataset.d;if(!P)break;P.keep=(P.keep||[]).filter(x=>x!==d);if(!(P.skip||[]).includes(d))P.skip=[...(P.skip||[]),d];render();break}
     case 'planUnskip':{const P=planOf(el.dataset.kind),d=el.dataset.d;if(!P)break;
@@ -971,6 +1002,7 @@ function change0(el){
       }
       break}
     case 'pcode':{const v=el.value.trim();const k=norm(v);
+      if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
       if(k){const dup=state.people.find(q=>q.id!==id&&codeKey(q)===k);if(dup){toast(`代碼「${v}」已經被 ${dup.name} 使用，請換一個`);render();return}}
       person(id).code=v;save(v?'代碼已更新':'代碼已清除');break}
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;if(s){s.rates=s.rates||{};s.rates[el.dataset.k]=v}save()}break}
@@ -982,7 +1014,7 @@ function change0(el){
 }
 /* ---------- undo: snapshot before every edit that actually changes data ---------- */
 const undoStack=[];
-const NOUNDO=new Set(['tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo','suRefresh','suLink']);
+const NOUNDO=new Set(['tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo','suRefresh','suLink','mmode','srcMode']);
 function renderUndo(){const b=$('#undo');if(b)b.hidden=!(loaded&&undoStack.length)}
 function withUndo(fn){
   if(!state||!state.seasons)return fn();

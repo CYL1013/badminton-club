@@ -142,7 +142,7 @@ function logout(){LS.del('su_code');code='';view=null;loginErr='';mode='login';r
 async function register(name,c){
   const j=await call({action:'mreg',code:c,name});
   if(j.ok){code=c;LS.set('su_code',c);view=j;stamp=Date.now();regErr='';mode='login';return true}
-  regErr=({bad_input:'名字要填，代碼至少 2 個字。',code_taken:'這個代碼已經有人用了，請換一個。',
+  regErr=({bad_input:'請填名字（20 字內）。',bad_code_fmt:'代碼只能是 3～12 位數字，不能有文字或符號。',code_taken:'這個代碼已經有人用了，請換一個。',
     name_taken:'這個名字已經註冊過了。如果是你，請直接用你的代碼登入；忘記代碼請問主辦人。',
     full:'目前註冊人數太多，請聯絡主辦人。'})[j.error]||'連不上伺服器，請檢查網路後再試一次。';
   return false;
@@ -152,7 +152,7 @@ function loginHtml(){
   return `<div class="login">
     <h2>羽球社團報名</h2>
     <p>請輸入你的個人代碼</p>
-    <form id="lf" autocomplete="off"><input type="text" id="code" placeholder="個人代碼" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" value="${esc(code)}">
+    <form id="lf" autocomplete="off"><input type="text" id="code" placeholder="個人代碼（數字）" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off" enterkeyhint="go" value="${esc(code)}">
     <button class="btn" type="submit"${busy?' disabled':''}>${busy?'登入中…':'登入'}</button></form>
     ${loginErr?`<p class="msg">${esc(loginErr)}</p>`:''}
     <button class="link" type="button" data-a="toReg" style="margin-top:18px">第一次使用？註冊</button>
@@ -162,10 +162,10 @@ function loginHtml(){
 function regHtml(){
   return `<div class="login">
     <h2>註冊</h2>
-    <p>填名字、自己取一個代碼，之後就用代碼登入</p>
+    <p>填名字、自己取一組數字當代碼，之後就用代碼登入</p>
     <form id="rf" autocomplete="off">
       <input type="text" id="rname" placeholder="你的名字" maxlength="20" autocomplete="off" style="margin-bottom:10px">
-      <input type="text" id="rcode" placeholder="自己取一個代碼（至少 2 個字）" maxlength="24" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <input type="text" id="rcode" placeholder="自己取一組數字代碼（3～12 位）" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off">
       <button class="btn" type="submit"${busy?' disabled':''}>${busy?'註冊中…':'註冊並登入'}</button>
     </form>
     ${regErr?`<p class="msg">${esc(regErr)}</p>`:''}
@@ -248,11 +248,13 @@ function render(){
   if(typedC!=null&&$('#rcode'))$('#rcode').value=typedC;
 }
 
+document.addEventListener('input',e=>{if(e.target.id==='code'||e.target.id==='rcode'){const v=e.target.value.replace(/\D/g,'');if(v!==e.target.value)e.target.value=v}});
 document.addEventListener('submit',async e=>{
   if(e.target.id==='rf'){
     e.preventDefault();
     const n=$('#rname').value.trim(),c=$('#rcode').value.trim();
     if(!n||!c){regErr='名字和代碼都要填。';render();return}
+    if(!/^\d{3,12}$/.test(c)){regErr='代碼只能是 3～12 位數字，不能有文字或符號。';render();return}
     busy=true;regErr='';render();$('#rname').value=n;$('#rcode').value=c;
     await register(n,c);busy=false;render();return;
   }
