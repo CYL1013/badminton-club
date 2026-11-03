@@ -39,7 +39,8 @@ input[type=text]:focus{border-color:var(--ink)}
 .msg{font-size:14px;margin:10px 0 0;color:var(--warn)}
 .status{display:inline-block;font-size:13px;padding:3px 10px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-top:10px}
 .status.wait{background:var(--warn-soft);color:var(--warn)}
-.names{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.names{list-style:none;margin:6px 0 0;padding:0}
+.names li.open{color:var(--muted);font-size:14px}
 .names li{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:15px}
 .names li i{font-style:normal;color:var(--muted);min-width:1.9em;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
 .names li span{min-width:0;overflow-wrap:anywhere}
@@ -222,7 +223,8 @@ function eventHtml(v){
     ${status?`<div>${status}</div>`:''}
     ${btn}
     ${err?`<p class="msg">${esc(err)}</p>`:''}
-    ${v.list.length?`<ul class="names">${main.map((x,i)=>li(x,i,false)).join('')}${wait.map((x,i)=>li(x,i,true)).join('')}</ul>`:'<p class="empty">還沒有人報名，你可以當第一個。</p>'}
+    ${v.list.length?`<p class="hd">正取（${main.length} / ${cap}）</p><ul class="names">${main.map((x,i)=>li(x,i,false)).join('')}${main.length<cap?`<li class="open"><i>${main.length+1}</i><span>還有 ${cap-main.length} 個名額</span></li>`:''}</ul>
+      <p class="hd">備取（${wait.length}）</p>${wait.length?`<ul class="names">${wait.map((x,i)=>li(x,i,true)).join('')}</ul>`:'<p class="empty" style="margin-top:6px;font-size:14px">目前沒有人備取</p>'}`:'<p class="empty">還沒有人報名，你可以當第一個。</p>'}
   </section>`;
 }
 
