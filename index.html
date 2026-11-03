@@ -568,13 +568,15 @@ function srcCard(s,d,n){
 function regCard(s){
   const regs=pendingRegs();
   if(!regs.length)return '';
+  const codeless=state.people.filter(p=>!codeKey(p)).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
   return `<div><h3>新註冊（${regs.length}）</h3>${regs.map(([k,r])=>{
     const same=state.people.find(p=>norm(p.name)===norm(r.name)&&!codeKey(p));
     const sameCoded=state.people.find(p=>norm(p.name)===norm(r.name)&&codeKey(p));
     return `<div class="srow"><div><span class="nm">${esc(r.name)}</span> <span class="muted small">代碼 ${esc(r.code||k)}</span></div>
       <div class="acts">${same?`<button type="button" class="btn sm pri" data-act="regBind" data-code="${esc(k)}" data-id="${same.id}">是 ${esc(same.name)}（綁定現有紀錄）</button>`:''}<button type="button" class="btn sm" data-act="regAdd" data-code="${esc(k)}">${same?'不是，':''}新增成員</button><button type="button" class="btn sm ghost" data-act="regIgnore" data-code="${esc(k)}">忽略</button></div>
+      <select data-ch="regBindSel" data-code="${esc(k)}" aria-label="綁定到之前的某位成員" style="width:100%;margin-top:6px"><option value="">或：同步到之前的某位成員（名字不同也可以）…</option>${codeless.map(p=>`<option value="${p.id}">${esc(p.name)}${isMember(s,p.id)?'（季費）':'（臨打）'}</option>`).join('')}</select>
       ${sameCoded?`<p class="warnnote">已經有同名的「${esc(sameCoded.name)}」而且設定過代碼，請確認是不是同一個人。</p>`:''}</div>`}).join('')}
-    <p class="muted small">確認前，他們可以先報名，但看不到費用紀錄。「綁定」會讓同名的舊紀錄（出席、費用）屬於這個代碼。</p></div>`;
+    <p class="muted small">確認前，他們可以先報名，但看不到費用紀錄。「綁定」會讓舊成員的紀錄（出席、費用）屬於這個代碼；如果註冊的名字和舊名單不一樣，會自動記成他的別名。</p></div>`;
 }
 async function boot(){
   if(!CFG){renderGate();return}
@@ -930,7 +932,7 @@ function act0(a,el){
       ui.date=d;save(`已匯入 ${Object.keys(att).length} 人到 ${md(d)}`);break}
     case 'regAdd':case 'regBind':{const k=el.dataset.code,r=(ui.regs||{})[k];if(!r)break;
       if(state.people.some(p=>codeKey(p)===k)){toast('這個代碼已經有人使用');break}
-      if(a==='regBind'){const p=person(id);p.code=r.code||k}else state.people.push({id:uid(),name:r.name,aliases:[],code:r.code||k});
+      if(a==='regBind'){const p=person(id);p.code=r.code||k;if(norm(p.name)!==norm(r.name)&&!(p.aliases||[]).some(x=>norm(x)===norm(r.name)))p.aliases=[...(p.aliases||[]),r.name]}else state.people.push({id:uid(),name:r.name,aliases:[],code:r.code||k});
       delete ui.regs[k];save(`已加入 ${r.name}`);break}
     case 'regIgnore':{const k=el.dataset.code;delete (ui.regs||{})[k];jsonpCall(CFG.url,{action:'regdel',token:CFG.pw,code:k}).catch(()=>{});render();toast('已忽略');break}
     case 'suPrio':{state.signup={...(state.signup||{}),priority:!prioOn()};save(prioOn()?'已開啟季費成員優先':'已關閉季費成員優先');break}
@@ -1020,6 +1022,10 @@ function change0(el){
         save(`${pname(id)} 已取消結清，已還原收款紀錄`);
       }
       break}
+    case 'regBindSel':{const k=el.dataset.code,pid=el.value,r=(ui.regs||{})[k];if(!pid||!r){render();return}
+      if(state.people.some(p=>codeKey(p)===k)){toast('這個代碼已經有人使用');render();return}
+      const p=person(pid);p.code=r.code||k;if(norm(p.name)!==norm(r.name)&&!(p.aliases||[]).some(x=>norm(x)===norm(r.name)))p.aliases=[...(p.aliases||[]),r.name];
+      delete ui.regs[k];save(`已把 ${r.name} 的註冊同步到「${p.name}」`);break}
     case 'guestSel':{const pid=el.value;if(!pid||!s||!ui.date)return;const x=sess(s,ui.date);if(!x.att[pid])x.att[pid]=isMember(s,pid)?{}:{paid:0};save(`已加入 ${pname(pid)}`);break}
     case 'pcode':{const v=el.value.trim();const k=norm(v);
       if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
