@@ -466,7 +466,7 @@ function buildSnapshot(){
   return {updated:Date.now(),season:s.name,
     rates:{court:rt('court',s),fee:fee(),ballPrice:Math.round(ballPrice()*100)/100,cap:rt('cap',s)},
     sessions:{total:s.dates.length,played:s.dates.filter(d=>d<=t&&Object.keys(getSess(s,d).att||{}).length).length},
-    event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open}:null,
+    event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open,priorityUntil:prioOn()?priorityInfo(nx).until:0,priorityLabel:priorityInfo(nx).label}:null,
     people};
 }
 async function publishSnap(force){
@@ -488,11 +488,25 @@ function signupLink(){
   const a=btoa(unescape(encodeURIComponent(CFG.url))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
   return location.origin+location.pathname.replace(/[^/]*$/,'')+'signup.html?a='+a;
 }
+/* 報名順序：季費成員在「打球日前的最後一個週五 23:59」前報名可優先正取；
+   這段時間臨打一律備取；截止後（優先成員之後）依報名先後順序排。 */
+function priorityInfo(d){
+  const dow=dt(d).getUTCDay();const back=((dow-5+7)%7)||7;const fri=addDays(d,-back);
+  const [y,m,dd]=fri.split('-').map(Number);
+  return {until:Date.UTC(y,m-1,dd,23,59,59)-8*3600*1000,label:`${m}/${dd}（週五）23:59`};
+}
+function prioOn(){return !(state.signup&&state.signup.priority===false)}
 function signupEntries(s,d){
   const cap=rt('cap',s);
   const arr=((ui.su||{})[d]||[]).slice().sort((a,b)=>a.t-b.t);
   const rows=arr.map(r=>({r,p:state.people.find(q=>codeKey(q)===r.c)})).filter(x=>x.p);
-  return {main:rows.slice(0,cap).map(x=>x.p),wait:rows.slice(cap).map(x=>x.p),unknown:arr.length-rows.length};
+  const until=prioOn()?priorityInfo(d).until:0;
+  const prio=[],rest=[];
+  rows.forEach(x=>{(until&&isMember(s,x.p.id)&&x.r.t<until?prio:rest).push(x)});
+  const ordered=prio.concat(rest);const active=until&&Date.now()<until;
+  const main=active?prio.slice(0,cap):ordered.slice(0,cap);
+  const wait=active?prio.slice(cap).concat(rest):ordered.slice(cap);
+  return {main:main.map(x=>x.p),wait:wait.map(x=>x.p),unknown:arr.length-rows.length,active:!!active};
 }
 function seg(items,cur,act){return `<span class="seg wide">${items.map(([v,l])=>`<button type="button" class="${cur===v?'on':''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</span>`}
 function pendingRegs(){return Object.entries(ui.regs||{}).filter(([k])=>!state.people.some(p=>codeKey(p)===k))}
@@ -509,6 +523,9 @@ function vSignupAdmin(s){
   return `<section class="card"><h2>報名頁</h2>
     <p class="small">${nx?`目前開放報名的是 <b>${md(nx)}（週${wd(nx)}）</b>，也就是下一個打球日。`:'本季已經沒有下一個打球日，報名頁不會顯示活動。'}</p>
     <div class="row-btns"><span class="small">狀態：<b>${open?'開放中':'已關閉'}</b></span><button type="button" class="btn sm" data-act="suToggle">${open?'關閉報名':'重新開放報名'}</button></div>
+    <h3 style="margin-top:14px">報名順序</h3>
+    <div class="row-btns"><span class="small">季費成員優先：<b>${prioOn()?'開':'關'}</b></span><button type="button" class="btn sm" data-act="suPrio">${prioOn()?'關閉':'開啟'}</button></div>
+    <p class="muted small">${prioOn()?'打球日前的最後一個週五 23:59 前，季費成員報名可優先正取，臨打先列備取；之後單純依報名先後順序。':'目前完全依報名先後順序排，不分成員或臨打。'}</p>
     <h3 style="margin-top:14px">分享給成員</h3>
     <div class="row-btns"><button type="button" class="btn pri" data-act="suLink">複製報名頁連結</button><button type="button" class="btn sm" data-act="suRefresh">重新整理資料</button></div>
     <p class="muted small">把連結貼到 LINE 群組。成員第一次用代碼登入，也可以自己註冊（代碼只能是數字），你在「本週 → 名單來源」確認後，他才看得到自己的出席與費用。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
@@ -529,14 +546,14 @@ function vSettings(s){
     <p class="muted small">資料存在你的 Google 試算表，另外「Log」工作表會留最近 300 次的存檔備份。</p></section>`;
 }
 function srcCard(s,d,n){
-  const {main,wait,unknown}=signupEntries(s,d);
+  const ents=signupEntries(s,d);const {main,wait,unknown}=ents;
   const regs=pendingRegs();
   const src=ui.parse?'line':(ui.src||'web');
   const hasWeb=main.length||wait.length;
   const open=!n||ui.parse||regs.length||ui.srcOpen;
   const web=`${hasWeb?`<div class="chips" style="margin-bottom:8px">${main.map((p,i)=>`<span class="chip">${i+1}. ${esc(p.name)}</span>`).join('')}${wait.map((p,i)=>`<span class="chip" style="opacity:.7">備${i+1} ${esc(p.name)}</span>`).join('')}</div>
       <div class="row-btns"><button type="button" class="btn pri" data-act="suImport">匯入到這天的出席</button><button type="button" class="btn sm" data-act="suRefresh">重新整理</button></div>
-      <p class="muted small">會把這天的出席名單換成上面的報名名單，之後還能手動增減，點錯了也能復原。</p>`
+      <p class="muted small">${prioOn()?(ents.active?`目前是優先報名期間（${priorityInfo(d).label} 前），臨打先列備取。`:`${priorityInfo(d).label} 已過，依報名順序排。`):''}會把這天的出席名單換成上面的名單，之後還能手動增減，點錯了也能復原。</p>`
       :`<p class="muted small">${ui.su?'這天還沒有人在報名頁報名。':'報名資料載入中…'}</p><div class="row-btns"><button type="button" class="btn sm" data-act="suRefresh">重新整理</button></div>`}
     ${regCard(s)}
     ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}`;
@@ -610,6 +627,7 @@ function vSession(s){
     ${absent.length?`<div><h3>季費會員沒來（點一下加入）</h3><div class="chips" style="margin-top:6px">${absent.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
     ${backups.length?`<div><h3>備取（點一下上場）</h3><div class="chips" style="margin-top:6px">${backups.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
     <div class="row-btns"><input type="text" id="guestName" list="plist" placeholder="加臨打（輸入名字）" style="flex:1"><datalist id="plist">${state.people.map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist><button class="btn" data-act="addGuest">加入</button></div>
+    <div class="row-btns"><select id="guestSel" data-ch="guestSel" style="flex:1" aria-label="從歷屆臨打選擇"><option value="">從歷屆臨打名單選擇…</option>${state.people.filter(p=>!isMember(s,p.id)&&!x.att[p.id]).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
   </section>
   <section class="card"><h2>這次用了幾顆球</h2>
     <div class="row-btns"><div class="stepper"><button data-act="ball" data-v="-1" aria-label="少一顆">−</button><span class="num cork">${x.balls||0}</span><button data-act="ball" data-v="1" aria-label="多一顆">＋</button></div>
@@ -915,6 +933,7 @@ function act0(a,el){
       if(a==='regBind'){const p=person(id);p.code=r.code||k}else state.people.push({id:uid(),name:r.name,aliases:[],code:r.code||k});
       delete ui.regs[k];save(`已加入 ${r.name}`);break}
     case 'regIgnore':{const k=el.dataset.code;delete (ui.regs||{})[k];jsonpCall(CFG.url,{action:'regdel',token:CFG.pw,code:k}).catch(()=>{});render();toast('已忽略');break}
+    case 'suPrio':{state.signup={...(state.signup||{}),priority:!prioOn()};save(prioOn()?'已開啟季費成員優先':'已關閉季費成員優先');break}
     case 'suToggle':{const wasOpen=!(state.signup&&state.signup.open===false);state.signup={...(state.signup||{}),open:!wasOpen};save(state.signup.open?'已重新開放報名':'已關閉報名');break}
     case 'suRefresh':loadSignups();publishSnap(true);toast('重新整理中…');break;
     case 'suLink':{const t=signupLink();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('已複製報名頁連結，貼到 LINE 就可以了'),()=>{prompt('複製這個連結',t)});break}
@@ -1001,6 +1020,7 @@ function change0(el){
         save(`${pname(id)} 已取消結清，已還原收款紀錄`);
       }
       break}
+    case 'guestSel':{const pid=el.value;if(!pid||!s||!ui.date)return;const x=sess(s,ui.date);if(!x.att[pid])x.att[pid]=isMember(s,pid)?{}:{paid:0};save(`已加入 ${pname(pid)}`);break}
     case 'pcode':{const v=el.value.trim();const k=norm(v);
       if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
       if(k){const dup=state.people.find(q=>q.id!==id&&codeKey(q)===k);if(dup){toast(`代碼「${v}」已經被 ${dup.name} 使用，請換一個`);render();return}}
