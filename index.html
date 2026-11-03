@@ -467,7 +467,7 @@ function rosterSnap(s,d){
   const att=attList(x),back=backList(x);if(!att.length&&!back.length)return null;
   const su=(ui.su||{})[d]||[];const web=new Set(x.web||[]);
   const code=id=>{const r=su.find(r=>!r.off&&byCode(r.c)&&byCode(r.c).id===id);return r?r.c:(codeKey(person(id))||'')};
-  const e=(id,b)=>{const o={c:code(id),n:pname(id)};if(web.has(id))o.w=1;if(b)o.b=1;return o};
+  const st=new Set(x.stay||[]);const e=(id,b)=>{const o={c:code(id),n:pname(id)};if(web.has(id))o.w=1;if(b)o.b=1;if(b&&st.has(id))o.k=(x.bkIds||[]).includes(id)?2:1;return o};
   return att.map(id=>e(id,false)).concat(back.map(id=>e(id,true)));
 }
 function buildSnapshot(){
@@ -551,8 +551,9 @@ function signupEntries(s,d){
   const prio=[],rest=[];
   rows.forEach(x=>{(until&&isMember(s,x.p.id)&&x.r.t<until?prio:rest).push(x)});
   const ordered=prio.concat(rest);const active=until&&Date.now()<until;
-  const main=active?prio.slice(0,cap):ordered.slice(0,cap);
-  const wait=active?prio.slice(cap).concat(rest):ordered.slice(cap);
+  // 選擇「報名備取」的人不排進正取
+  const main=[];ordered.forEach(x=>{if(main.length<cap&&!x.r.bk&&(!active||prio.includes(x)))main.push(x)});
+  const wait=ordered.filter(x=>!main.includes(x));
   return {main:main.map(x=>x.p),wait:wait.map(x=>x.p),unknown:arr.filter(r=>!state.people.some(q=>codeKey(q)===r.c||(q.oldCodes||[]).includes(r.c))).length,unk:arr.filter(r=>!state.people.some(q=>codeKey(q)===r.c||(q.oldCodes||[]).includes(r.c))),active:!!active};
 }
 function seg(items,cur,act){return `<span class="seg wide">${items.map(([v,l])=>`<button type="button" class="${cur===v?'on':''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</span>`}
@@ -606,29 +607,37 @@ function setList(s,d,att,back){
   att.forEach(id=>{next[id]=x.att[id]||x.hold[id]||(isMember(s,id)?{}:{paid:0});delete x.hold[id]});
   Object.keys(x.att).forEach(id=>{if(!next[id]&&back.includes(id))x.hold[id]=x.att[id]});
   x.att=next;x.ord=att.slice();x.backup=back.slice();
+  if(x.stay)x.stay=x.stay.filter(id=>back.includes(id));
 }
 function moveSel(s,d,dir){
   const x=sess(s,d);const cap=rt('cap',s);const sel=ui.sel||new Set();
   if(!sel.size)return false;
   const L=attList(x).map(id=>({id,a:true})).concat(backList(x).map(id=>({id,a:false})));
   let attCount=L.filter(e=>e.a).length;const before=JSON.stringify(L);
+  const stay=new Set(x.stay||[]);
   if(dir<0){
-    for(let i=1;i<L.length;i++){
-      if(sel.has(L[i].id)&&!sel.has(L[i-1].id)){
-        [L[i-1],L[i]]=[L[i],L[i-1]];const S=L[i-1],P=L[i];
-        if(!S.a&&P.a){if(attCount<cap){S.a=true;attCount++}else{S.a=true;P.a=false}}
-      }
+    for(let i=0;i<L.length;i++){
+      if(!sel.has(L[i].id))continue;
+      const S=L[i],P=L[i-1];
+      // 備取第一位、正取沒滿：直接變成正取最後一位
+      if(!S.a&&(!P||P.a)&&attCount<cap){S.a=true;attCount++;stay.delete(S.id);continue}
+      if(!P||sel.has(P.id))continue;
+      [L[i-1],L[i]]=[S,P];
+      if(!S.a&&P.a){S.a=true;P.a=false;stay.delete(S.id);stay.add(P.id)}
     }
   }else{
-    for(let i=L.length-2;i>=0;i--){
-      if(sel.has(L[i].id)&&!sel.has(L[i+1].id)){
-        [L[i],L[i+1]]=[L[i+1],L[i]];const Q=L[i],S=L[i+1];
-        if(S.a&&!Q.a){S.a=false;Q.a=true}
-      }
+    for(let i=L.length-1;i>=0;i--){
+      if(!sel.has(L[i].id))continue;
+      const S=L[i],Q=L[i+1];
+      // 正取最後一位：正取沒滿（或後面沒有備取）就直接變成備取第一位
+      if(S.a&&(!Q||!Q.a)&&(!Q||sel.has(Q.id)||attCount!==cap)){S.a=false;attCount--;stay.add(S.id);continue}
+      if(!Q||sel.has(Q.id))continue;
+      [L[i],L[i+1]]=[Q,S];
+      if(S.a&&!Q.a){S.a=false;Q.a=true;stay.add(S.id);stay.delete(Q.id)}
     }
   }
   if(JSON.stringify(L)===before)return false;
-  x.manual=true;
+  x.manual=true;x.stay=[...stay];
   setList(s,d,L.filter(e=>e.a).map(e=>e.id),L.filter(e=>!e.a).map(e=>e.id));
   return true;
 }
@@ -652,6 +661,12 @@ function syncWeb(s,d){
   offNew.forEach(r=>{const p=byCode(r.c);if(p)gone.add(p.id)});
   if(offNew.length)x.offDone=(x.offDone||[]).concat(offNew.map(r=>r.c+'@'+r.t)).slice(-50);
   att=att.filter(id=>!gone.has(id));back=back.filter(id=>!gone.has(id));
+  // 成員自己改成「報名備取」／改回正取
+  const bkNow=new Set(((ui.su||{})[d]||[]).filter(r=>!r.off&&r.bk).map(r=>{const p=byCode(r.c);return p&&p.id}).filter(Boolean));
+  const bkPrev=new Set(x.bkIds||[]);let stay=new Set(x.stay||[]);
+  bkNow.forEach(id=>{if(!bkPrev.has(id)){if(att.includes(id)){att=att.filter(v=>v!==id);back.unshift(id)}stay.add(id)}});
+  bkPrev.forEach(id=>{if(!bkNow.has(id))stay.delete(id)});
+  x.bkIds=[...bkNow];x.stay=[...stay];
   x.removed=(x.removed||[]).filter(id=>webIds.has(id));const rm=new Set(x.removed);
   if(!x.manual){
     att=att.filter(id=>!webIds.has(id)).concat(mainIds);
@@ -661,7 +676,7 @@ function syncWeb(s,d){
     back=back.concat(waitIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
     // 正取有空位：備取依序遞補（優先報名期間只補季費會員）
     const act0=prioOn()&&Date.now()<priorityInfo(d).until;
-    for(let i=0;i<back.length&&att.length<rt('cap',s);){if(!act0||isMember(s,back[i]))att.push(back.splice(i,1)[0]);else i++}
+    for(let i=0;i<back.length&&att.length<rt('cap',s);){if(!stay.has(back[i])&&(!act0||isMember(s,back[i])))att.push(back.splice(i,1)[0]);else i++}
   }
   const web=[...webIds];
   if(JSON.stringify([att,back,web])===before)return false;
@@ -682,9 +697,9 @@ function rosterCard(s,d,x){
   const owe=att.filter(id=>!isMember(s,id)&&(x.att[id].paid||0)<fee());
   const absent=s.members.filter(id=>!x.att[id]&&!back.includes(id));
   const tag=id=>isMember(s,id)?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>';
-  const li=(id,label,isAtt)=>{
+  const stayS=new Set(x.stay||[]);const li=(id,label,isAtt)=>{
     const m=isMember(s,id);const p=isAtt?(x.att[id].paid||0):0;const on=sel.has(id);
-    return `<li class="${on?'sel':''} ${isAtt?'':'bk'}"><input type="checkbox" class="selbox" data-ch="sel" data-id="${id}" ${on?'checked':''} aria-label="選取 ${esc(pname(id))}"><span class="idx">${label}</span><span class="nm">${esc(pname(id))}</span>${tag(id)}${isAtt&&!m?`<button type="button" class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`:''}</li>`};
+    return `<li class="${on?'sel':''} ${isAtt?'':'bk'}"><input type="checkbox" class="selbox" data-ch="sel" data-id="${id}" ${on?'checked':''} aria-label="選取 ${esc(pname(id))}"><span class="idx">${label}</span><span class="nm">${esc(pname(id))}${!isAtt&&stayS.has(id)?' <span class="muted small">（留在備取）</span>':''}</span>${tag(id)}${isAtt&&!m?`<button type="button" class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`:''}</li>`};
   const rows=att.map((id,i)=>li(id,i+1,true)).join('')+(back.length?`<li class="sepli">備取</li>`:'')+back.map((id,i)=>li(id,'備'+(i+1),false)).join('');
   const line=`<textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
     <div class="row-btns"><button class="btn pri" data-act="parse">讀取名單</button>${ui.parse?'<button class="btn ghost" data-act="cancelParse">取消</button>':''}</div>

@@ -132,10 +132,10 @@ async function login(c,silent){
   loginErr='連不上伺服器，請檢查網路後再試一次。';render();return false;
 }
 
-async function sign(on){
+async function sign(on,bk){
   if(busy||!view||!view.event)return;
   busy=true;err='';render();
-  const j=await call({action:'msign',code,date:view.event.date,on:on?'1':'0'});
+  const j=await call({action:'msign',code,date:view.event.date,on:on?'1':'0',bk:bk?'1':'0'});
   busy=false;
   if(j.ok){view=j;stamp=Date.now()}
   else if(j.error==='closed')err='報名已經關閉了。';
@@ -208,11 +208,14 @@ function eventHtml(v){
   if(!ev)return `<section class="card"><p class="label">下次活動</p><p class="big">目前沒有開放的活動</p><p class="sub">主辦人排好下一場後，這裡就會出現。</p></section>`;
   const main=v.list.filter(x=>x.status==='main'),wait=v.list.filter(x=>x.status==='wait');
   const cap=ev.cap||8;
-  let status='',btn='';
+  let status='',btn='';const isM=v.me&&v.me.role==='member';
   if(v.myStatus==='main')status=`<span class="status">已報名・正取第 ${v.myPos} 位</span>`;
+  else if(v.myStatus==='wait'&&v.myBk)status=`<span class="status wait">備取第 ${v.myPos} 位（你選擇報名備取）</span>`;
   else if(v.myStatus==='wait')status=`<span class="status wait">備取第 ${v.myPos} 位${v.prio&&v.prio.active&&v.me.role!=='member'?`（${esc(v.prio.label)} 前季費成員優先，之後依報名順序）`:'（有人取消會自動遞補）'}</span>`;
   if(!ev.open)btn=`<button class="btn ghost" disabled>報名已關閉</button>`;
-  else if(v.myStatus)btn=`<button class="btn ghost" data-a="cancel"${busy?' disabled':''}>${busy?'處理中…':'取消報名'}</button>`;
+  else if(v.myStatus)btn=`${isM?`<button class="btn soft" data-a="${v.myBk?'join':'joinBk'}"${busy?' disabled':''}>${v.myBk?'改成報名正取':'改成報名備取'}</button>`:''}<button class="btn ghost" data-a="cancel"${busy?' disabled':''} style="${isM?'margin-top:10px':''}">${busy?'處理中…':'取消報名'}</button>`;
+  else if(isM)btn=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn" data-a="join"${busy?' disabled':''}>${busy?'處理中…':'報名正取'}</button><button class="btn ghost" data-a="joinBk"${busy?' disabled':''}>報名備取</button></div>
+    <p class="sub" style="font-size:13px">${main.length>=cap?'正取目前額滿，報名正取會先排在備取，有人取消就遞補。<br>':''}報名備取：先不佔正取名額，正取有人取消或需要補人時，主辦人再讓你遞補。</p>`;
   else btn=`<button class="btn" data-a="join"${busy?' disabled':''}>${busy?'處理中…':(main.length>=cap?'報名（目前額滿，將列入備取）':'我要報名')}</button>`;
   const li=(x,i,w)=>`<li class="${x.me?'me ':''}${w?'wait':''}"><i>${w?'備'+(i+1):i+1}</i><span>${esc(x.name)}</span></li>`;
   return `<section class="card">
@@ -390,7 +393,7 @@ document.addEventListener('submit',async e=>{
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;
   const a=b.dataset.a;
-  if(a==='join')sign(true);else if(a==='cancel')sign(false);else if(a==='logout')logout();
+  if(a==='join')sign(true,false);else if(a==='joinBk')sign(true,true);else if(a==='cancel')sign(false);else if(a==='logout')logout();
   else if(a==='tab'){tab=b.dataset.v;codeErr='';codeOk='';nameErr='';nameOk='';joinErr='';render();window.scrollTo(0,0)}else if(a==='join-member')joinSeason();else if(a==='renew')setRenew(b.dataset.v);
   else if(a==='toReg'){mode='reg';regErr='';render()}else if(a==='toLogin'){mode='login';loginErr='';render()}
 });
