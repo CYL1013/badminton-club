@@ -659,8 +659,9 @@ function syncWeb(s,d){
   }else{
     att=att.concat(mainIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
     back=back.concat(waitIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
-    // 有人取消：備取依序遞補到正取
-    if(gone.size)while(att.length<rt('cap',s)&&back.length)att.push(back.shift());
+    // 正取有空位：備取依序遞補（優先報名期間只補季費會員）
+    const act0=prioOn()&&Date.now()<priorityInfo(d).until;
+    for(let i=0;i<back.length&&att.length<rt('cap',s);){if(!act0||isMember(s,back[i]))att.push(back.splice(i,1)[0]);else i++}
   }
   const web=[...webIds];
   if(JSON.stringify([att,back,web])===before)return false;
