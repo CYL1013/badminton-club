@@ -443,7 +443,7 @@ function startPolling(){clearInterval(pollTimer);pollTimer=setInterval(pollRefre
 async function pollRefresh(){if(!CFG||writing||dirty)return;
   try{const j=await apiGet(CFG.url,CFG.pw);
     if(j.ok&&(j.version!==version||mode==='offline')){mode='cloud';state=normalize(j.data);version=j.version;cacheState();render();setSync('已存到雲端');schedulePublish()}
-    if(ui.tab==='session')loadSignups()}
+    loadSignups()}
   catch(e){}}
 /* ---------- member sign-up page support ---------- */
 let lastPub='',pubT=null;
@@ -481,7 +481,17 @@ async function publishSnap(force){
 async function loadSignups(){
   if(!CFG||!CFG.url)return;
   try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
-    if(j&&j.ok){ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
+    if(j&&j.ok){
+      // 成員自己改過代碼：把新代碼同步到成員資料
+      const ren=j.renames||{};const done=[];let changed=false;
+      Object.keys(ren).forEach(oldK=>{
+        const p=state&&state.people.find(q=>codeKey(q)===oldK);
+        if(!p){done.push(oldK);return}
+        if(!state.people.some(q=>q!==p&&codeKey(q)===ren[oldK])){p.code=ren[oldK];changed=true;done.push(oldK)}
+      });
+      if(changed){save('有成員自己改了報名代碼，已同步')}
+      if(done.length)jsonpCall(CFG.url,{action:'rendel',token:CFG.pw,codes:done.join(',')}).catch(()=>{});
+      ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
 }
 function signupLink(){
