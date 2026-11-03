@@ -526,7 +526,7 @@ function signupEntries(s,d){
   const ordered=prio.concat(rest);const active=until&&Date.now()<until;
   const main=active?prio.slice(0,cap):ordered.slice(0,cap);
   const wait=active?prio.slice(cap).concat(rest):ordered.slice(cap);
-  return {main:main.map(x=>x.p),wait:wait.map(x=>x.p),unknown:arr.length-rows.length,active:!!active};
+  return {main:main.map(x=>x.p),wait:wait.map(x=>x.p),unknown:arr.length-rows.length,unk:arr.filter(r=>!state.people.some(q=>codeKey(q)===r.c)),active:!!active};
 }
 function seg(items,cur,act){return `<span class="seg wide">${items.map(([v,l])=>`<button type="button" class="${cur===v?'on':''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</span>`}
 function pendingRegs(){return Object.entries(ui.regs||{}).filter(([k])=>!state.people.some(p=>codeKey(p)===k))}
@@ -660,7 +660,7 @@ function rosterCard(s,d,x){
   return `<section class="card"><div class="row-btns"><h2>${md(d)}（週${wd(d)}）名單</h2>${owe.length?`<button class="btn sm right" data-act="payAll">臨打全部已收</button>`:''}</div>
     <p class="muted small" style="margin:-2px 0 8px">正取 ${n}/${cap}${back.length?`・備取 ${back.length}`:''}${webN?`・網路報名 ${webN} 人`:''}${prioOn()&&webN?`・${ents.active?`優先報名期間至 ${priorityInfo(d).label}，臨打先列備取`:`${priorityInfo(d).label} 已過，依報名順序`}`:''}</p>
     ${regCard(s)}
-    ${ents.unknown?`<p class="warnnote">有 ${ents.unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}
+    ${ents.unknown?`<p class="warnnote">有 ${ents.unknown} 筆報名對不到人：${ents.unk.map(r=>{const g=(ui.regs||{})[r.c];const t=new Date(r.t).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});return g?`代碼 ${esc(r.c)}＝剛註冊的「${esc(g.name)}」（${t} 報名），請在上方「新註冊」按加入或綁定`:`代碼 ${esc(r.c)}（${t} 報名），成員名單裡沒有人用這個代碼，可能是對方自己改過代碼，或你改了他的代碼`}).join('；')}。</p>`:''}
     ${rows?`<ul class="list roster">${rows}</ul>`:`<p class="muted">還沒有人。等成員報名，或從下面加入。</p>`}
     <div class="mvbar">
       <button type="button" class="btn sm" data-act="mvDown" ${none?'disabled':''}>↓ 往下</button>
