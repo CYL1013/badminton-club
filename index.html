@@ -145,6 +145,15 @@ table.g tfoot td{color:var(--muted)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:4px 11px;font-size:13px}
 .seg button.on{background:var(--court);color:var(--court-ink)}
+.roster li{display:flex;align-items:center;gap:8px}
+.roster li.sel{background:var(--court-soft)}
+.roster .idx{min-width:2.2em;white-space:nowrap;text-align:right;flex:none}
+.roster li.bk .nm{color:var(--muted)}
+.roster li.sepli{display:block;font-size:12px;letter-spacing:.1em;color:var(--muted);padding:10px 0 2px;border-bottom:none}
+.selbox{width:22px;height:22px;flex:none;accent-color:var(--court)}
+.mvbar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+.mvbar .btn{width:100%;padding:11px 6px;font-size:15px}
+.mvbar .btn[disabled]{opacity:.4}
 .seg.wide{display:flex;width:100%}
 .seg.wide button{flex:1;padding:9px 6px;font-size:14px}
 .hint{font-size:13px}
@@ -491,7 +500,8 @@ async function loadSignups(){
       });
       if(changed){save('有成員自己改了報名代碼，已同步')}
       if(done.length)jsonpCall(CFG.url,{action:'rendel',token:CFG.pw,codes:done.join(',')}).catch(()=>{});
-      ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
+      ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();
+      if(syncAllWeb())save();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
 }
 function signupLink(){
@@ -555,25 +565,116 @@ function vSettings(s){
     <div class="row-btns"><button class="btn sm" data-act="copy">複製備份資料</button><button class="btn sm warn ghost" data-act="logout">清除本機登入設定</button></div>
     <p class="muted small">資料存在你的 Google 試算表，另外「Log」工作表會留最近 300 次的存檔備份。</p></section>`;
 }
-function srcCard(s,d,n){
-  const ents=signupEntries(s,d);const {main,wait,unknown}=ents;
+/* ---------- 名單：正取（出席）＋備取，合成同一份有順序的名單 ---------- */
+function attList(x){
+  const o=[],seen=new Set();
+  (x.ord||[]).forEach(id=>{if(x.att[id]&&!seen.has(id)){o.push(id);seen.add(id)}});
+  Object.keys(x.att||{}).forEach(id=>{if(!seen.has(id)){o.push(id);seen.add(id)}});
+  return o;
+}
+function backList(x){return (x.backup||[]).filter((id,i,a)=>!x.att[id]&&a.indexOf(id)===i)}
+function setList(s,d,att,back){
+  const x=sess(s,d);x.hold=x.hold||{};
+  const next={};
+  att.forEach(id=>{next[id]=x.att[id]||x.hold[id]||(isMember(s,id)?{}:{paid:0});delete x.hold[id]});
+  Object.keys(x.att).forEach(id=>{if(!next[id]&&back.includes(id))x.hold[id]=x.att[id]});
+  x.att=next;x.ord=att.slice();x.backup=back.slice();
+}
+function moveSel(s,d,dir){
+  const x=sess(s,d);const cap=rt('cap',s);const sel=ui.sel||new Set();
+  if(!sel.size)return false;
+  const L=attList(x).map(id=>({id,a:true})).concat(backList(x).map(id=>({id,a:false})));
+  let attCount=L.filter(e=>e.a).length;const before=JSON.stringify(L);
+  if(dir<0){
+    for(let i=1;i<L.length;i++){
+      if(sel.has(L[i].id)&&!sel.has(L[i-1].id)){
+        [L[i-1],L[i]]=[L[i],L[i-1]];const S=L[i-1],P=L[i];
+        if(!S.a&&P.a){if(attCount<cap){S.a=true;attCount++}else{S.a=true;P.a=false}}
+      }
+    }
+  }else{
+    for(let i=L.length-2;i>=0;i--){
+      if(sel.has(L[i].id)&&!sel.has(L[i+1].id)){
+        [L[i],L[i+1]]=[L[i+1],L[i]];const Q=L[i],S=L[i+1];
+        if(S.a&&!Q.a){S.a=false;Q.a=true}
+      }
+    }
+  }
+  if(JSON.stringify(L)===before)return false;
+  x.manual=true;
+  setList(s,d,L.filter(e=>e.a).map(e=>e.id),L.filter(e=>!e.a).map(e=>e.id));
+  return true;
+}
+function delSel(s,d){
+  const x=sess(s,d);const sel=ui.sel||new Set();if(!sel.size)return 0;
+  const att=attList(x).filter(id=>!sel.has(id)),back=backList(x).filter(id=>!sel.has(id));
+  const n=sel.size;
+  x.hold=x.hold||{};sel.forEach(id=>{delete x.hold[id]});
+  x.removed=(x.removed||[]).concat([...sel].filter(id=>(x.web||[]).includes(id)));x.manual=true;
+  setList(s,d,att,back);
+  ui.sel=new Set();return n;
+}
+/* 網路報名 → 名單：沒手動調整過就完全照規則排；手動調整過就只加入新報名的、移除取消的 */
+function syncWeb(s,d){
+  const x=sess(s,d);const {main,wait}=signupEntries(s,d);
+  const mainIds=main.map(p=>p.id),waitIds=wait.map(p=>p.id),webIds=new Set(mainIds.concat(waitIds));
+  const prevWeb=x.web||[];
+  let att=attList(x),back=backList(x);const before=JSON.stringify([att,back,prevWeb]);
+  const gone=new Set(prevWeb.filter(id=>!webIds.has(id)));
+  att=att.filter(id=>!gone.has(id));back=back.filter(id=>!gone.has(id));
+  x.removed=(x.removed||[]).filter(id=>webIds.has(id));const rm=new Set(x.removed);
+  if(!x.manual){
+    att=att.filter(id=>!webIds.has(id)).concat(mainIds);
+    back=back.filter(id=>!webIds.has(id)).concat(waitIds);
+  }else{
+    att=att.concat(mainIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
+    back=back.concat(waitIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
+  }
+  const web=[...webIds];
+  if(JSON.stringify([att,back,web])===before)return false;
+  x.web=web;setList(s,d,att,back);return true;
+}
+function syncAllWeb(){
+  if(!state||!state.seasons||!state.seasons.length||!ui.su)return false;
+  const s=S();const t=today();let changed=false;
+  s.dates.filter(d=>d>=t&&(((ui.su||{})[d]||[]).length||((s.sessions[d]||{}).web||[]).length)).forEach(d=>{if(syncWeb(s,d))changed=true});
+  return changed;
+}
+function rosterCard(s,d,x){
+  const cap=rt('cap',s);
+  const att=attList(x),back=backList(x);const n=att.length;
+  const ents=signupEntries(s,d);const webN=ents.main.length+ents.wait.length;
   const regs=pendingRegs();
-  const src=ui.parse?'line':(ui.src||'web');
-  const hasWeb=main.length||wait.length;
-  const open=!n||ui.parse||regs.length||ui.srcOpen;
-  const web=`${hasWeb?`<div class="chips" style="margin-bottom:8px">${main.map((p,i)=>`<span class="chip">${i+1}. ${esc(p.name)}</span>`).join('')}${wait.map((p,i)=>`<span class="chip" style="opacity:.7">備${i+1} ${esc(p.name)}</span>`).join('')}</div>
-      <div class="row-btns"><button type="button" class="btn pri" data-act="suImport">匯入到這天的出席</button><button type="button" class="btn sm" data-act="suRefresh">重新整理</button></div>
-      <p class="muted small">${prioOn()?(ents.active?`目前是優先報名期間（${priorityInfo(d).label} 前），臨打先列備取。`:`${priorityInfo(d).label} 已過，依報名順序排。`):''}會把這天的出席名單換成上面的名單，之後還能手動增減，點錯了也能復原。</p>`
-      :`<p class="muted small">${ui.su?'這天還沒有人在報名頁報名。':'報名資料載入中…'}</p><div class="row-btns"><button type="button" class="btn sm" data-act="suRefresh">重新整理</button></div>`}
-    ${regCard(s)}
-    ${unknown?`<p class="warnnote">有 ${unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}`;
-  const line=`    <textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
+  const sel=ui.sel||(ui.sel=new Set());
+  const owe=att.filter(id=>!isMember(s,id)&&(x.att[id].paid||0)<fee());
+  const absent=s.members.filter(id=>!x.att[id]&&!back.includes(id));
+  const tag=id=>isMember(s,id)?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>';
+  const li=(id,label,isAtt)=>{
+    const m=isMember(s,id);const p=isAtt?(x.att[id].paid||0):0;const on=sel.has(id);
+    return `<li class="${on?'sel':''} ${isAtt?'':'bk'}"><input type="checkbox" class="selbox" data-ch="sel" data-id="${id}" ${on?'checked':''} aria-label="選取 ${esc(pname(id))}"><span class="idx">${label}</span><span class="nm">${esc(pname(id))}</span>${tag(id)}${isAtt&&!m?`<button type="button" class="pay ${p>=fee()?'ok':'due'}" data-act="pay" data-id="${id}">${p>=fee()?'已收':'未收'}</button><input class="amt num" id="amt-${id}" type="number" inputmode="numeric" data-ch="amt" data-id="${id}" value="${p}" aria-label="${esc(pname(id))} 實收金額">`:''}</li>`};
+  const rows=att.map((id,i)=>li(id,i+1,true)).join('')+(back.length?`<li class="sepli">備取</li>`:'')+back.map((id,i)=>li(id,'備'+(i+1),false)).join('');
+  const line=`<textarea id="lineText" data-in="line" placeholder="${md(d)}打球名單&#10;1.名字&#10;2.名字&#10;…&#10;&#10;備1 名字">${esc(ui.lineText)}</textarea>
     <div class="row-btns"><button class="btn pri" data-act="parse">讀取名單</button>${ui.parse?'<button class="btn ghost" data-act="cancelParse">取消</button>':''}</div>
     ${ui.parse?parsePreview(s):''}`;
-  return `<details class="card" ${open?'open':''}><summary>名單來源${hasWeb?`・網路報名 ${main.length}${wait.length?`＋備${wait.length}`:''} 人`:''}${regs.length?`・新註冊 ${regs.length}`:''}</summary>
-    <div class="row-btns" style="margin-bottom:10px">${seg([['web','網路報名'],['line','貼上 LINE']],src,'srcMode')}</div>
-    ${src==='web'?web:line}
-  </details>`;
+  const none=!sel.size;
+  return `<section class="card"><div class="row-btns"><h2>${md(d)}（週${wd(d)}）名單</h2>${owe.length?`<button class="btn sm right" data-act="payAll">臨打全部已收</button>`:''}</div>
+    <p class="muted small" style="margin:-2px 0 8px">正取 ${n}/${cap}${back.length?`・備取 ${back.length}`:''}${webN?`・網路報名 ${webN} 人`:''}${prioOn()&&webN?`・${ents.active?`優先報名期間至 ${priorityInfo(d).label}，臨打先列備取`:`${priorityInfo(d).label} 已過，依報名順序`}`:''}</p>
+    ${regCard(s)}
+    ${ents.unknown?`<p class="warnnote">有 ${ents.unknown} 筆報名的代碼對不到人（可能是剛註冊還沒確認，或代碼被改過）。</p>`:''}
+    ${rows?`<ul class="list roster">${rows}</ul>`:`<p class="muted">還沒有人。等成員報名，或從下面加入。</p>`}
+    <div class="mvbar">
+      <button type="button" class="btn sm" data-act="mvDown" ${none?'disabled':''}>↓ 往下</button>
+      <button type="button" class="btn sm warn ghost" data-act="delSel" ${none?'disabled':''}>刪除${sel.size?`（${sel.size}）`:''}</button>
+      <button type="button" class="btn sm" data-act="mvUp" ${none?'disabled':''}>↑ 往上</button>
+    </div>
+    <p class="muted small" style="margin:6px 0 0">先勾選前面的方框，再按往上／往下／刪除。把備取往上移到正取，就是讓他上場。${x.manual?'<button type="button" class="link" data-act="suReset" style="margin-left:6px">重新依報名順序排</button>':''}</p>
+    <h3 style="margin-top:16px">加入臨打</h3>
+    <div class="row-btns"><input type="text" id="guestName" list="plist" placeholder="輸入名字" style="flex:1"><datalist id="plist">${state.people.map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist><button class="btn" data-act="addGuest">加入</button></div>
+    <div class="row-btns"><select id="guestSel" data-ch="guestSel" style="flex:1" aria-label="從歷屆臨打選擇"><option value="">從歷屆臨打名單選擇…</option>${state.people.filter(p=>!isMember(s,p.id)&&!x.att[p.id]&&!back.includes(p.id)).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    ${absent.length?`<div><h3>季費會員沒報名（點一下加入）</h3><div class="chips" style="margin-top:6px">${absent.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
+    <div class="row-btns"><button type="button" class="btn sm" data-act="suRefresh">重新整理網路報名</button></div>
+    <details style="margin-top:6px"><summary class="muted small">貼上 LINE 名單（舊方法）</summary><div style="margin-top:8px">${line}</div></details>
+  </section>`;
 }
 function regCard(s){
   const regs=pendingRegs();
@@ -633,14 +734,7 @@ function vSession(s){
   </div>
   ${n>cap?`<p class="note">超過 ${cap} 人，多 ${n-cap} 人，當天多收 ${money(extra(s,d))}（已記錄）。</p>`:''}
   ${gap(s,d)?`<p class="note">只有 ${n} 人，場地少收 ${money(gap(s,d))}，這筆會併入當天球錢，由出席的人平分。</p>`:''}
-  ${srcCard(s,d,n)}
-  <section class="card"><div class="row-btns"><h2>${md(d)}（週${wd(d)}）出席</h2>${owe.length?`<button class="btn sm right" data-act="payAll">臨打全部已收</button>`:''}</div>
-    ${n?`<ul class="list">${rows}</ul>`:'<p class="muted">還沒有人。貼上 LINE 名單，或從下面點名加入。</p>'}
-    ${absent.length?`<div><h3>季費會員沒來（點一下加入）</h3><div class="chips" style="margin-top:6px">${absent.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
-    ${backups.length?`<div><h3>備取（點一下上場）</h3><div class="chips" style="margin-top:6px">${backups.map(id=>`<button class="chip" data-act="add" data-id="${id}">${esc(pname(id))}</button>`).join('')}</div></div>`:''}
-    <div class="row-btns"><input type="text" id="guestName" list="plist" placeholder="加臨打（輸入名字）" style="flex:1"><datalist id="plist">${state.people.map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist><button class="btn" data-act="addGuest">加入</button></div>
-    <div class="row-btns"><select id="guestSel" data-ch="guestSel" style="flex:1" aria-label="從歷屆臨打選擇"><option value="">從歷屆臨打名單選擇…</option>${state.people.filter(p=>!isMember(s,p.id)&&!x.att[p.id]).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-  </section>
+  ${rosterCard(s,d,x)}
   <section class="card"><h2>這次用了幾顆球</h2>
     <div class="row-btns"><div class="stepper"><button data-act="ball" data-v="-1" aria-label="少一顆">−</button><span class="num cork">${x.balls||0}</span><button data-act="ball" data-v="1" aria-label="多一顆">＋</button></div>
     <p class="muted small">一顆 ${money(ballPrice())}${gap(s,d)?`＋場地缺額 ${money(gap(s,d))}`:''}，${n||0} 人平分，每人 ${money(sh)}（無條件進位）。季末一起收。</p></div>
@@ -924,7 +1018,7 @@ function doApply(s){const P=ui.parse;const d=P.date;
   if(!s.dates.includes(d)){s.dates.push(d);s.dates.sort()}
   const x=sess(s,d);const att={};
   P.main.forEach(r=>{const id=resolveRow(r);if(id&&!att[id])att[id]=x.att[id]||(isMember(s,id)?{}:{paid:0})});
-  x.att=att;x.backup=P.backup.map(resolveRow).filter(id=>id&&!att[id]);
+  x.att=att;x.ord=Object.keys(att);x.manual=true;x.backup=P.backup.map(resolveRow).filter(id=>id&&!att[id]);
   ui.date=d;ui.parse=null;ui.lineText='';save(`已設定 ${md(d)} 出席 ${Object.keys(att).length} 人`);
 }
 function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
@@ -932,25 +1026,28 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
 function act0(a,el){
-  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;if(ui.tab==='session')loadSignups();return}
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;ui.sel=new Set();if(ui.tab==='session')loadSignups();return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
     case 'mmode':ui.mo=el.dataset.v;render();window.scrollTo(0,0);if(ui.mo==='signup')loadSignups();break;
     case 'srcMode':ui.src=el.dataset.v;ui.srcOpen=true;render();break;
+    case 'mvUp':case 'mvDown':{const d=ui.date;if(moveSel(s,d,a==='mvUp'?-1:1))save();else toast(a==='mvUp'?'已經在最上面了':'已經在最下面了');break}
+    case 'delSel':{const d=ui.date;const n=delSel(s,d);if(n)save(`已刪除 ${n} 人`);break}
+    case 'suReset':{const d=ui.date;const x=sess(s,d);x.manual=false;x.removed=[];syncWeb(s,d);save('已重新依報名順序排列');break}
     case 'suImport':{const d=ui.date;const {main,wait}=signupEntries(s,d);const x=sess(s,d);const att={};
       main.forEach(p=>{att[p.id]=x.att[p.id]||(isMember(s,p.id)?{}:{paid:0})});x.att=att;x.backup=wait.map(p=>p.id).filter(i=>!att[i]);
       ui.date=d;save(`已匯入 ${Object.keys(att).length} 人到 ${md(d)}`);break}
     case 'regAdd':case 'regBind':{const k=el.dataset.code,r=(ui.regs||{})[k];if(!r)break;
       if(state.people.some(p=>codeKey(p)===k)){toast('這個代碼已經有人使用');break}
       if(a==='regBind'){const p=person(id);p.code=r.code||k;if(norm(p.name)!==norm(r.name)&&!(p.aliases||[]).some(x=>norm(x)===norm(r.name)))p.aliases=[...(p.aliases||[]),r.name]}else state.people.push({id:uid(),name:r.name,aliases:[],code:r.code||k});
-      delete ui.regs[k];save(`已加入 ${r.name}`);break}
+      delete ui.regs[k];syncAllWeb();save(`已加入 ${r.name}`);break}
     case 'regIgnore':{const k=el.dataset.code;delete (ui.regs||{})[k];jsonpCall(CFG.url,{action:'regdel',token:CFG.pw,code:k}).catch(()=>{});render();toast('已忽略');break}
-    case 'suPrio':{state.signup={...(state.signup||{}),priority:!prioOn()};save(prioOn()?'已開啟季費成員優先':'已關閉季費成員優先');break}
+    case 'suPrio':{state.signup={...(state.signup||{}),priority:!prioOn()};syncAllWeb();save(prioOn()?'已開啟季費成員優先':'已關閉季費成員優先');break}
     case 'suToggle':{const wasOpen=!(state.signup&&state.signup.open===false);state.signup={...(state.signup||{}),open:!wasOpen};save(state.signup.open?'已重新開放報名':'已關閉報名');break}
     case 'suRefresh':loadSignups();publishSnap(true);toast('重新整理中…');break;
     case 'suLink':{const t=signupLink();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('已複製報名頁連結，貼到 LINE 就可以了'),()=>{prompt('複製這個連結',t)});break}
     case 'goPerson':ui.tab='people';ui.open=id;render();window.scrollTo(0,0);break;
-    case 'date':ui.date=el.dataset.d;ui.tab='session';ui.centerDate=true;render();window.scrollTo(0,0);break;
+    case 'date':ui.date=el.dataset.d;ui.sel=new Set();ui.tab='session';ui.centerDate=true;render();window.scrollTo(0,0);break;
     case 'parse':doParse(s);render();break;
     case 'cancelParse':ui.parse=null;render();break;
     case 'apply':doApply(s);break;
@@ -1035,7 +1132,8 @@ function change0(el){
     case 'regBindSel':{const k=el.dataset.code,pid=el.value,r=(ui.regs||{})[k];if(!pid||!r){render();return}
       if(state.people.some(p=>codeKey(p)===k)){toast('這個代碼已經有人使用');render();return}
       const p=person(pid);p.code=r.code||k;if(norm(p.name)!==norm(r.name)&&!(p.aliases||[]).some(x=>norm(x)===norm(r.name)))p.aliases=[...(p.aliases||[]),r.name];
-      delete ui.regs[k];save(`已把 ${r.name} 的註冊同步到「${p.name}」`);break}
+      delete ui.regs[k];syncAllWeb();save(`已把 ${r.name} 的註冊同步到「${p.name}」`);break}
+    case 'sel':{ui.sel=ui.sel||new Set();if(el.checked)ui.sel.add(id);else ui.sel.delete(id);render();break}
     case 'guestSel':{const pid=el.value;if(!pid||!s||!ui.date)return;const x=sess(s,ui.date);if(!x.att[pid])x.att[pid]=isMember(s,pid)?{}:{paid:0};save(`已加入 ${pname(pid)}`);break}
     case 'pcode':{const v=el.value.trim();const k=norm(v);
       if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
