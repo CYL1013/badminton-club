@@ -95,7 +95,7 @@ function readApi(){
 }
 const API=readApi();
 let code=LS.get('su_code')||'';
-let codeOk='';let view=null,busy=false,err='',loginErr='',stamp=0,mode='login',regErr='',codeErr='',nameErr='',nameOk='',tab='play',joinErr='';
+let codeOk='',renewErr='';let view=null,busy=false,err='',loginErr='',stamp=0,mode='login',regErr='',codeErr='',nameErr='',nameOk='',tab='play',joinErr='';
 
 let seq=0;
 function jsonp(params,ms){
@@ -264,10 +264,10 @@ function memberHtml(v){
   let act;
   if(isM)act=`<div class="result">你是本季的季費會員</div>`;
   else if(m.pending)act=`<button class="btn ghost" disabled>主辦人確認你的名字後才能報名</button>`;
-  else if(ms.requested)act=`<div class="result">已報名成為會員，請向主辦人繳季費</div>`;
+  else if(ms.requested){const u=new Date(ms.holdUntil);act=`<div class="result">已幫你保留名額到 ${u.getMonth()+1}/${u.getDate()} ${String(u.getHours()).padStart(2,'0')}:${String(u.getMinutes()).padStart(2,'0')}<br>請在這之前把季費 ${money((r.fee||0)*total)} 交給主辦人，主辦人確認後就是正式會員。</div>`}
   else if(full)act=`<button class="btn ghost" disabled>名額已滿（${ms.count} / ${cap}）</button>`;
-  else act=`<button class="btn" data-a="join-member"${busy?' disabled':''}>${busy?'處理中…':'報名成為季費會員'}</button>`;
-  return `<section class="card"><p class="label">本季季費會員</p>
+  else act=`${ms.expired?`<p class="msg">上次保留的名額已經過期，可以重新報名。</p>`:''}<button class="btn" data-a="join-member"${busy?' disabled':''}>${busy?'處理中…':'報名成為季費會員'}</button>`;
+  return renewHtml(v)+`<section class="card"><p class="label">本季季費會員</p>
     <p class="big">${ms.count} / ${cap} 人</p>
     <p class="sub">${full?'名額已滿，不再收新會員。':`還有 ${cap-ms.count} 個名額，滿 ${cap} 人就不再收。`}</p></section>
   <section class="card"><p class="label">會員規則</p>
@@ -279,9 +279,35 @@ function memberHtml(v){
       <li>報名優先：打球日前最後一個週五 23:59 前，會員先報先排正取；臨打會排在備取。過了之後，依報名先後排順序。</li>
       <li>臨打每次 ${money(r.fee||0)}，不用預繳。</li>
       <li>會員名額 ${cap} 人，額滿後不再收。</li>
+      <li>報名後名額保留 3 天，主辦人收到季費、確認後才是正式會員；逾期沒繳，名額會釋出。</li>
     </ul>
     ${act}${joinErr?`<p class="msg">${esc(joinErr)}</p>`:''}
   </section>`;
+}
+function renewHtml(v){
+  const m=v.me,rn=v.renew;if(!rn||!rn.open||m.role!=='member')return '';
+  const b=Math.round(m.balance||0),F=rn.fee||0,need=F-b;
+  const yes=m.renew===true,no=m.renew===false;
+  return `<section class="card"><p class="label">下季續約</p>
+    <p class="big" style="font-size:20px">${yes?'你選了：續約':no?'你選了：不續約':'下一季還要繼續當會員嗎？'}</p>
+    <ul class="rules">
+      <li>續約：下季季費 ${money(F)}（${rn.n} 次），目前結餘 ${b>=0?money(b):'−'+money(-b)} 直接折抵，${need>0?`要再繳 <b>${money(need)}</b>`:`不用再繳${need<0?`，還剩 ${money(-need)}`:''}`}。</li>
+      <li>不續約：${b>0?`退你 <b>${money(b)}</b>`:b<0?`要補繳 <b>${money(-b)}</b>`:'剛好結清'}。</li>
+    </ul>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button class="btn ${yes?'':'ghost'}" data-a="renew" data-v="1"${busy?' disabled':''}>續約</button>
+      <button class="btn ${no?'':'ghost'}" data-a="renew" data-v="0"${busy?' disabled':''}>不續約</button>
+    </div>
+    ${renewErr?`<p class="msg">${esc(renewErr)}</p>`:''}
+    <p class="sub" style="font-size:13px">選錯可以再按一次改。金額以主辦人最後結算為準。</p>
+  </section>`;
+}
+async function setRenew(v){
+  if(busy)return;busy=true;renewErr='';render();
+  const j=await call({action:'mrenew',code,v});busy=false;
+  if(j.ok){view=j;stamp=Date.now()}
+  else renewErr=({renew_closed:'主辦人已經關閉續約回覆了。',not_member:'只有季費會員可以回覆續約。'})[j.error]||'連不上伺服器，請再按一次。';
+  render();
 }
 function profileHtml(v){
   const m=v.me,isM=m.role==='member';
@@ -363,7 +389,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;
   const a=b.dataset.a;
   if(a==='join')sign(true);else if(a==='cancel')sign(false);else if(a==='logout')logout();
-  else if(a==='tab'){tab=b.dataset.v;codeErr='';codeOk='';nameErr='';nameOk='';joinErr='';render();window.scrollTo(0,0)}else if(a==='join-member')joinSeason();
+  else if(a==='tab'){tab=b.dataset.v;codeErr='';codeOk='';nameErr='';nameOk='';joinErr='';render();window.scrollTo(0,0)}else if(a==='join-member')joinSeason();else if(a==='renew')setRenew(b.dataset.v);
   else if(a==='toReg'){mode='reg';regErr='';render()}else if(a==='toLogin'){mode='login';loginErr='';render()}
 });
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&code&&view&&Date.now()-stamp>15000)login(code,true)});

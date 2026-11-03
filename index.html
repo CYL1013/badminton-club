@@ -459,6 +459,17 @@ let lastPub='',pubT=null;
 function schedulePublish(){clearTimeout(pubT);pubT=setTimeout(()=>publishSnap(false),2500)}
 function codeKey(p){return norm(p.code||'')}
 function dupCodes(){const seen={},dup=new Set();state.people.forEach(p=>{const k=codeKey(p);if(!k)return;if(seen[k])dup.add(k);seen[k]=1});return dup}
+function renewOpen(){return !!(state.signup&&state.signup.renewOpen)}
+function renewFee(s){const n=s.dates.length||12;return {n,F:Math.round(n*rt('court',s)/rt('cap',s))}}
+/* 主辦人排好的名單（正取＋備取）一起發布，報名頁就照這個順序顯示 */
+function rosterSnap(s,d){
+  const x=getSess(s,d);if(!x.att)return null;
+  const att=attList(x),back=backList(x);if(!att.length&&!back.length)return null;
+  const su=(ui.su||{})[d]||[];const web=new Set(x.web||[]);
+  const code=id=>{const r=su.find(r=>!r.off&&byCode(r.c)&&byCode(r.c).id===id);return r?r.c:(codeKey(person(id))||'')};
+  const e=(id,b)=>{const o={c:code(id),n:pname(id)};if(web.has(id))o.w=1;if(b)o.b=1;return o};
+  return att.map(id=>e(id,false)).concat(back.map(id=>e(id,true)));
+}
 function buildSnapshot(){
   if(!state||!state.seasons||!state.seasons.length)return null;
   const s=S();const {out}=calc(s);const t=today();const nx=s.dates.find(d=>d>t);const dup=dupCodes();
@@ -470,12 +481,13 @@ function buildSnapshot(){
     people[k]={name:p.name,role:member?'member':'guest',att:rows.length,rows,
       court:rows.length*fee(),ball:o?o.ball:0,ballPaid:!!(o&&o.ballPaid),
       paid:o?(member?o.feePaid:o.paid):0,carry:o?o.carry:0,balance:o?Math.round(o.balance):0,
-      remain:member?o.remain:null,seasonFee:member?o.fee:null,done:!!(o&&o.done)}});
+      remain:member?o.remain:null,seasonFee:member?o.fee:null,done:!!(o&&o.done),renew:member?((s.settle[p.id]||{}).renew??null):null}});
   const open=!(state.signup&&state.signup.open===false);
   return {updated:Date.now(),season:s.name,
     rates:{court:rt('court',s),fee:fee(),ballPrice:Math.round(ballPrice()*100)/100,cap:rt('cap',s)},
     sessions:{total:s.dates.length,played:s.dates.filter(d=>d<=t&&Object.keys(getSess(s,d).att||{}).length).length},
-    event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open,priorityUntil:prioOn()?priorityInfo(nx).until:0,priorityLabel:priorityInfo(nx).label}:null,
+    event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open,priorityUntil:prioOn()?priorityInfo(nx).until:0,priorityLabel:priorityInfo(nx).label,roster:rosterSnap(s,nx)}:null,
+    renew:renewOpen()?{open:true,fee:renewFee(s).F,n:renewFee(s).n}:null,
     people};
 }
 async function publishSnap(force){
@@ -487,6 +499,7 @@ async function publishSnap(force){
   await formSubmit(CFG.url,{action:'publish',token:CFG.pw,data:JSON.stringify(snap)});
   if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render();
 }
+const MEMBER_HOLD=3*86400000;
 async function loadSignups(){
   if(!CFG||!CFG.url)return;
   try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
@@ -500,17 +513,21 @@ async function loadSignups(){
       });
       if(changed){save('有成員自己改了報名代碼，已同步')}
       if(done.length)jsonpCall(CFG.url,{action:'rendel',token:CFG.pw,codes:done.join(',')}).catch(()=>{});
-      // 成員自己改名字、報名成為季費會員：套用到帳本
-      {const rq=j.reqs||{};const rdone=[];const sN=S();let rch=[];
-        Object.keys(rq).forEach(k=>{const p=state&&state.people.find(q=>codeKey(q)===k);if(!p){rdone.push(k);return}
-          const r=rq[k];
-          if(r.name&&r.name!==p.name){p.aliases=[...new Set([...(p.aliases||[]),p.name])];p.name=r.name;rch.push(`${r.name} 改了名字`)}
-          if(r.member&&sN&&!sN.members.includes(p.id)){if(sN.members.length<rt('cap',sN)){sN.members.push(p.id);rch.push(`${p.name} 報名成為季費會員（記得收季費）`)}}
-          rdone.push(k)});
+      // 成員自己改名字、回覆續約：套用到帳本；報名會員：列出來等主辦人確認
+      {const rq=j.reqs||{};const del={all:[],name:[],renew:[],member:[]};const sN=S();const rch=[];ui.mreqs=[];
+        Object.keys(rq).forEach(k=>{const p=state&&state.people.find(q=>codeKey(q)===k);const r=rq[k];
+          if(!p){del.all.push(k);return}
+          if(r.name!=null){if(r.name&&r.name!==p.name){p.aliases=[...new Set([...(p.aliases||[]),p.name])];p.name=r.name;rch.push(`${r.name} 改了名字`)}del.name.push(k)}
+          if(r.renew!=null&&sN){const v=r.renew==='1'?true:r.renew==='0'?false:undefined;
+            if((sN.settle[p.id]||{}).renew!==v){sN.settle[p.id]={...(sN.settle[p.id]||{}),renew:v};rch.push(`${p.name} 回覆${v===true?'要續約':v===false?'不續約':'還沒決定'}`)}
+            del.renew.push(k)}
+          if(r.member){if(!sN||sN.members.includes(p.id)||Date.now()-(r.t||0)>=MEMBER_HOLD)del.member.push(k);else ui.mreqs.push({k,id:p.id,t:r.t})}
+        });
+        ui.mreqs.sort((a,b)=>a.t-b.t);
         if(rch.length)save(rch.join('；'));
-        if(rdone.length)jsonpCall(CFG.url,{action:'reqdel',token:CFG.pw,codes:rdone.join(',')}).catch(()=>{})}
+        Object.entries(del).forEach(([f,list])=>{if(list.length)jsonpCall(CFG.url,{action:'reqdel',token:CFG.pw,codes:list.join(','),...(f==='all'?{}:{field:f})}).catch(()=>{})})}
       ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();
-      if(syncAllWeb())save();if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
+      if(syncAllWeb())save();if(ui.tab==='session'||ui.tab==='people'||ui.tab==='settle'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
 }
 function signupLink(){
@@ -525,9 +542,10 @@ function priorityInfo(d){
   return {until:Date.UTC(y,m-1,dd,23,59,59)-8*3600*1000,label:`${m}/${dd}（週五）23:59`};
 }
 function prioOn(){return !(state.signup&&state.signup.priority===false)}
+function byCode(c){return state.people.find(q=>codeKey(q)===c||(q.oldCodes||[]).includes(c))}
 function signupEntries(s,d){
   const cap=rt('cap',s);
-  const arr=((ui.su||{})[d]||[]).slice().sort((a,b)=>a.t-b.t);
+  const arr=((ui.su||{})[d]||[]).filter(r=>!r.off).sort((a,b)=>a.t-b.t);
   const seenP=new Set();const rows=arr.map(r=>({r,p:state.people.find(q=>codeKey(q)===r.c||(q.oldCodes||[]).includes(r.c))})).filter(x=>x.p&&!seenP.has(x.p.id)&&seenP.add(x.p.id));
   const until=prioOn()?priorityInfo(d).until:0;
   const prio=[],rest=[];
@@ -629,7 +647,10 @@ function syncWeb(s,d){
   const mainIds=main.map(p=>p.id),waitIds=wait.map(p=>p.id),webIds=new Set(mainIds.concat(waitIds));
   const prevWeb=x.web||[];
   let att=attList(x),back=backList(x);const before=JSON.stringify([att,back,prevWeb]);
+  const offNew=((ui.su||{})[d]||[]).filter(r=>r.off&&!(x.offDone||[]).includes(r.c+'@'+r.t));
   const gone=new Set(prevWeb.filter(id=>!webIds.has(id)));
+  offNew.forEach(r=>{const p=byCode(r.c);if(p)gone.add(p.id)});
+  if(offNew.length)x.offDone=(x.offDone||[]).concat(offNew.map(r=>r.c+'@'+r.t)).slice(-50);
   att=att.filter(id=>!gone.has(id));back=back.filter(id=>!gone.has(id));
   x.removed=(x.removed||[]).filter(id=>webIds.has(id));const rm=new Set(x.removed);
   if(!x.manual){
@@ -638,6 +659,8 @@ function syncWeb(s,d){
   }else{
     att=att.concat(mainIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
     back=back.concat(waitIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
+    // 有人取消：備取依序遞補到正取
+    if(gone.size)while(att.length<rt('cap',s)&&back.length)att.push(back.shift());
   }
   const web=[...webIds];
   if(JSON.stringify([att,back,web])===before)return false;
@@ -761,7 +784,7 @@ function pendingCard(s){
   const t=today();const nx=s.dates.find(d=>d>=t);
   const line=nx?`<p class="small">下次打球 <b>${md(nx)}（週${wd(nx)}）</b>，目前報名 ${Object.keys(getSess(s,nx).att||{}).length}/${rt('cap',s)} 人。</p>`:'';
   const grp=(title,list)=>list.length?`<div><h3>${title}</h3><div class="chips" style="margin-top:6px">${list.join('')}</div></div>`:'';
-  const parts=[dueM.length?`季費欠 ${dueM.length}`:'',owe.length?`臨打欠 ${owe.length}`:'',low.length?`剩≤2次 ${low.length}`:'',stale.length?`資料有變動 ${stale.length}`:'',regs.length?`新註冊 ${regs.length}`:''].filter(Boolean);
+  const parts=[dueM.length?`季費欠 ${dueM.length}`:'',owe.length?`臨打欠 ${owe.length}`:'',low.length?`剩≤2次 ${low.length}`:'',stale.length?`資料有變動 ${stale.length}`:'',regs.length?`新註冊 ${regs.length}`:'',(ui.mreqs||[]).length?`會員申請 ${(ui.mreqs||[]).length}`:''].filter(Boolean);
   return `<details class="card"><summary>待處理${parts.length?'：'+parts.join('・'):'：目前都處理好了 ✓'}</summary>
     ${line}${grp('季費還沒繳完',dueM.map(id=>chip(id,money(out[id].due))))}${grp('臨打還沒付',owe.map(id=>chip(id,money(out[id].unpaid))))}${grp('剩餘次數 ≤ 2',low.map(id=>chip(id,out[id].remain+' 次')))}${grp('結清後資料有變動',stale.map(id=>chip(id,'')))}
     ${regs.length?`<p class="warnnote">有 ${regs.length} 位新註冊等你確認，請到下面「名單來源」處理。</p>`:''}
@@ -817,6 +840,15 @@ function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
     <label>本季已繳<input type="number" inputmode="numeric" id="pp-${id}" data-ch="ppaid" data-id="${id}" value="${s.feePaid[id]||0}"></label>`:''}
     <label>上季結轉（正數＝可折抵）<input type="number" inputmode="numeric" id="pc-${id}" data-ch="pcarry" data-id="${id}" value="${s.carry[id]||0}"></label>
   </div><div class="row-btns">${m&&o&&o.due>0?`<button class="btn sm pri" data-act="feeFull" data-id="${id}">季費繳清（${money(o.due)}）</button>`:''}<button class="btn sm warn ghost" data-act="delPerson" data-id="${id}">${o&&o.att?'從本季移除這個人':'刪除這個人'}</button></div>`}
+function mreqCard(s){
+  const L=(ui.mreqs||[]).filter(r=>person(r.id)&&!s.members.includes(r.id));if(!L.length)return '';
+  const cap=rt('cap',s);const full=s.members.length>=cap;
+  return `<section class="card"><h2>會員申請（${L.length}）</h2>
+    <p class="muted small">這些人在報名頁報名成為季費會員，名額先保留 3 天。收到季費後按「已收季費，加入」；目前會員 ${s.members.length}/${cap}。</p>
+    <ul class="list">${L.map(r=>{const until=new Date(r.t+MEMBER_HOLD);return `<li style="flex-wrap:wrap;gap:6px"><span class="nm">${esc(pname(r.id))}</span><span class="muted small">保留到 ${until.getMonth()+1}/${until.getDate()} ${String(until.getHours()).padStart(2,'0')}:${String(until.getMinutes()).padStart(2,'0')}</span>
+      <span class="row-btns" style="width:100%;margin:4px 0 0"><button type="button" class="btn sm pri" data-act="mreqOk" data-id="${r.id}" data-code="${esc(r.k)}" data-v="paid" ${full?'disabled':''}>已收季費 ${money(memberFee(s,r.id))}，加入</button><button type="button" class="btn sm" data-act="mreqOk" data-id="${r.id}" data-code="${esc(r.k)}" data-v="later" ${full?'disabled':''}>先加入，之後收</button><button type="button" class="btn sm warn ghost" data-act="mreqNo" data-id="${r.id}" data-code="${esc(r.k)}">不同意</button></span></li>`}).join('')}</ul>
+    ${full?'<p class="warnnote">會員已滿，不能再加入。</p>':''}</section>`;
+}
 function vPeople(s){
   const {ids,out}=calc(s);const cap=rt('cap',s);
   const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
@@ -825,7 +857,7 @@ function vPeople(s){
     const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}${o.done?'<span class="tag m">已結清</span>':''}`
       :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}${o.done?'<span class="tag m">已結清</span>':''}`;
     return `<li><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
-  return `<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
+  return mreqCard(s)+`<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
     ${mem.length?`<ul class="list">${mem.map(li).join('')}</ul>`:'<p class="muted">還沒有季費會員。從下面新增，或把臨打設成季費會員。</p>'}</section>
   <section class="card"><h2>本季臨打</h2>${gst.length?`<ul class="list">${gst.map(li).join('')}</ul>`:'<p class="muted">這一季還沒有臨打。</p>'}</section>
   ${others.length?`<section class="card"><h2>其他人</h2><p class="muted small">以前來過、這季還沒出現的人。點一下設為本季季費會員。</p><div class="chips">${others.map(p=>`<button class="chip" data-act="mkMember" data-id="${p.id}">${esc(p.name)}</button>`).join('')}</div></section>`:''}
@@ -903,7 +935,7 @@ function vSettle(s){
 }
 function vRenew(s){
   const {ids,out}=calc(s);
-  const n=ui.ns?planCalc(ui.ns).dates.length:12;const F=Math.round(n*state.settings.court/state.settings.cap);
+  const n=ui.ns?planCalc(ui.ns).dates.length:renewFee(s).n;const F=Math.round(n*state.settings.court/state.settings.cap);
   let pay=0,ref=0,undec=0;
   const rows=s.members.filter(id=>out[id]).map(id=>{
     const o=out[id];const st=s.settle[id]||{};const b=Math.round(o.balance);const r=st.renew;
@@ -915,7 +947,9 @@ function vRenew(s){
     return `<div class="srow ${o.done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> <span class="muted small">剩 ${o.remain} 次</span></div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
       <div class="acts">${o.done?'':`<span class="seg"><button type="button" class="${r===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button type="button" class="${r===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`}<span class="hint">${res}</span></div></div>`}).join('');
   const guests=ids.filter(id=>!out[id].member&&!out[id].done&&Math.round(out[id].balance)!==0).map(id=>{const b=Math.round(out[id].balance);return `<div class="srow"><div><span class="nm">${esc(pname(id))}</span> <span class="tag">臨打</span></div><div class="bal ${b>0?'pos':'neg'}">${signed(b)}</div><div class="figs">${b<0?`還欠 ${money(-b)}`:`多付 ${money(b)}，可退或下次抵`}</div></div>`}).join('');
-  return `<section class="card"><h2>續約總表</h2>
+  return `<section class="card"><div class="row-btns"><h2>讓成員自己回覆續約</h2><button type="button" class="btn sm ${renewOpen()?'':'pri'} right" data-act="renewOpen">${renewOpen()?'關閉':'開放'}</button></div>
+    <p class="muted small" style="margin:0">${renewOpen()?'<b>開放中</b>：季費會員可以在報名頁「季費會員」分頁按續約或不續約，回覆會自動填進下面的表。':'開放後，季費會員可以在報名頁自己選續約或不續約，不用一個一個問。'}</p></section>
+  <section class="card"><h2>續約總表</h2>
     <p class="muted small">結餘 = 已繳 − 場地 − 球錢（＋上季結轉）。續約的人，結餘會直接折抵下季季費（預估季費 ${money(F)}，${n} 次；開新一季時可調整）。</p>
     <div class="totals"><div><h3>預計要收</h3><span class="bal neg">${money(pay)}</span></div><div><h3>預計要退</h3><span class="bal pos">${money(ref)}</span></div><div><h3>還沒決定</h3><span class="bal">${undec} 人</span></div></div>
     <div>${rows||'<p class="muted">這一季沒有季費會員。</p>'}</div></section>
@@ -1040,6 +1074,15 @@ function act0(a,el){
   switch(a){
     case 'mmode':ui.mo=el.dataset.v;render();window.scrollTo(0,0);if(ui.mo==='signup')loadSignups();break;
     case 'srcMode':ui.src=el.dataset.v;ui.srcOpen=true;render();break;
+    case 'mreqOk':{const cap=rt('cap',s);if(s.members.length>=cap){toast('會員已滿');return}
+      if(!s.members.includes(id))s.members.push(id);if(el.dataset.v==='paid')s.feePaid[id]=memberFee(s,id);
+      ui.mreqs=(ui.mreqs||[]).filter(r=>r.id!==id);
+      if(CFG&&CFG.url)jsonpCall(CFG.url,{action:'reqdel',token:CFG.pw,codes:el.dataset.code,field:'member'}).catch(()=>{});
+      save(`${pname(id)} 已成為季費會員${el.dataset.v==='paid'?'（季費已收）':'（季費待收）'}`);break}
+    case 'mreqNo':{ui.mreqs=(ui.mreqs||[]).filter(r=>r.id!==id);
+      if(CFG&&CFG.url)jsonpCall(CFG.url,{action:'reqdel',token:CFG.pw,codes:el.dataset.code,field:'member'}).catch(()=>{});
+      render();toast(`已取消 ${pname(id)} 的會員申請`);break}
+    case 'renewOpen':{state.signup={...(state.signup||{}),renewOpen:!renewOpen()};save(renewOpen()?'已開放成員在報名頁回覆續約':'已關閉續約回覆');break}
     case 'mvUp':case 'mvDown':{const d=ui.date;if(moveSel(s,d,a==='mvUp'?-1:1))save();else toast(a==='mvUp'?'已經在最上面了':'已經在最下面了');break}
     case 'delSel':{const d=ui.date;const n=delSel(s,d);if(n)save(`已刪除 ${n} 人`);break}
     case 'suReset':{const d=ui.date;const x=sess(s,d);x.manual=false;x.removed=[];syncWeb(s,d);save('已重新依報名順序排列');break}
