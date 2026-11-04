@@ -483,7 +483,7 @@ function buildSnapshot(){
       paid:o?(member?o.feePaid:o.paid):0,carry:o?o.carry:0,balance:o?Math.round(o.balance):0,
       remain:member?o.remain:null,seasonFee:member?o.fee:null,done:!!(o&&o.done),renew:member?((s.settle[p.id]||{}).renew??null):null}});
   const open=!(state.signup&&state.signup.open===false);
-  return {updated:Date.now(),season:s.name,
+  return {updated:Date.now(),season:s.name,memberCount:s.members.length,
     rates:{court:rt('court',s),fee:fee(),ballPrice:Math.round(ballPrice()*100)/100,cap:rt('cap',s)},
     sessions:{total:s.dates.length,played:s.dates.filter(d=>d<=t&&Object.keys(getSess(s,d).att||{}).length).length},
     event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open,priorityUntil:prioOn()?priorityInfo(nx).until:0,priorityLabel:priorityInfo(nx).label,roster:rosterSnap(s,nx)}:null,
@@ -577,6 +577,12 @@ function vSignupAdmin(s){
     <h3 style="margin-top:14px">分享給成員</h3>
     <div class="row-btns"><button type="button" class="btn pri" data-act="suLink">複製報名頁連結</button><button type="button" class="btn sm" data-act="suRefresh">重新整理資料</button></div>
     <p class="muted small">把連結貼到 LINE 群組。成員第一次用代碼登入，也可以自己註冊（代碼只能是數字），你在「本週 → 名單來源」確認後，他才看得到自己的出席與費用。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
+  </section>
+  <section class="card"><h2>季費會員對照（${s.members.length}/${rt('cap',s)}）</h2>
+    <p class="muted small">報名頁顯示的會員人數會跟這裡一樣。沒有代碼的人仍算在人數裡，但他不能登入報名頁。</p>
+    <ul class="list">${s.members.map(id=>{const p=person(id);const k=codeKey(p);
+      const st=!k?'<span class="pay due">沒有代碼，不能登入</span>':dup.has(k)?'<span class="pay due">代碼重複，不能登入</span>':!/^\d{3,12}$/.test(k)?'<span class="pay due">代碼格式不對</span>':`<span class="tag m">代碼 ${esc(k)}</span>`;
+      return `<li><span class="nm expand" data-act="goPerson" data-id="${id}" role="button" tabindex="0">${esc(p.name)}</span>${st}</li>`}).join('')}</ul>
   </section>
   <section class="card"><h2>代碼檢查</h2>
     ${dup.size||noCode.length||badFmt.length?'':'<p class="muted">所有成員的代碼都正常。</p>'}
