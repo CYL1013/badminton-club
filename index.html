@@ -728,7 +728,7 @@ function regCard(s){
   const regs=pendingRegs();
   if(!regs.length)return '';
   const codeless=state.people.filter(p=>!codeKey(p)).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
-  return `<div><h3>新註冊（${regs.length}）</h3>${regs.map(([k,r])=>{
+  return `<div><h3>新註冊，等你確認（${regs.length}）</h3>${regs.map(([k,r])=>{
     const same=state.people.find(p=>norm(p.name)===norm(r.name)&&!codeKey(p));
     const sameCoded=state.people.find(p=>norm(p.name)===norm(r.name)&&codeKey(p));
     return `<div class="srow"><div><span class="nm">${esc(r.name)}</span> <span class="muted small">代碼 ${esc(r.code||k)}</span></div>
@@ -873,7 +873,8 @@ function vPeople(s){
     const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}${o.done?'<span class="tag m">已結清</span>':''}`
       :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}${o.done?'<span class="tag m">已結清</span>':''}`;
     return `<li><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
-  return mreqCard(s)+`<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
+  const rc=regCard(s);
+  return (rc?`<section class="card">${rc}</section>`:'')+mreqCard(s)+`<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
     ${mem.length?`<ul class="list">${mem.map(li).join('')}</ul>`:'<p class="muted">還沒有季費會員。從下面新增，或把臨打設成季費會員。</p>'}</section>
   <section class="card"><h2>本季臨打</h2>${gst.length?`<ul class="list">${gst.map(li).join('')}</ul>`:'<p class="muted">這一季還沒有臨打。</p>'}</section>
   ${others.length?`<section class="card"><h2>其他人</h2><p class="muted small">以前來過、這季還沒出現的人。點一下設為本季季費會員。</p><div class="chips">${others.map(p=>`<button class="chip" data-act="mkMember" data-id="${p.id}">${esc(p.name)}</button>`).join('')}</div></section>`:''}
@@ -1085,7 +1086,7 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
 function act0(a,el){
-  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;ui.sel=new Set();if(ui.tab==='session')loadSignups();return}
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;ui.sel=new Set();if(ui.tab==='session'||ui.tab==='people')loadSignups();return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
     case 'mmode':ui.mo=el.dataset.v;render();window.scrollTo(0,0);if(ui.mo==='signup')loadSignups();break;
