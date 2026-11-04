@@ -139,6 +139,8 @@ async function sign(on,bk){
   busy=false;
   if(j.ok){view=j;stamp=Date.now()}
   else if(j.error==='closed')err='報名已經關閉了。';
+  else if(j.error==='not_yet')err='還沒到報名時間。';
+  else if(j.error==='deadline')err='已經過了報名截止時間，請直接聯絡主辦人。';
   else if(j.error==='no_event')err='活動已更新，請重新整理後再試。';
   else if(j.error==='bad_code')err='代碼失效了，請重新登入。';
   else err='網路不穩，這次沒有成功，請再按一次。';
@@ -212,7 +214,10 @@ function eventHtml(v){
   if(v.myStatus==='main')status=`<span class="status">已報名・正取第 ${v.myPos} 位</span>`;
   else if(v.myStatus==='wait'&&v.myBk)status=`<span class="status wait">備取第 ${v.myPos} 位（你選擇報名備取）</span>`;
   else if(v.myStatus==='wait')status=`<span class="status wait">備取第 ${v.myPos} 位${v.prio&&v.prio.active&&v.me.role!=='member'?`（${esc(v.prio.label)} 前季費成員優先，之後依報名順序）`:'（有人取消會自動遞補）'}</span>`;
-  if(!ev.open)btn=`<button class="btn ghost" disabled>報名已關閉</button>`;
+  const ph=v.phase||(ev.open?'open':'off');
+  if(ph==='off')btn=`<button class="btn ghost" disabled>報名已關閉</button>`;
+  else if(ph==='soon')btn=`<button class="btn ghost" disabled>${esc(ev.openLabel||'')} 開始報名</button>`;
+  else if(ph==='closed')btn=`<button class="btn ghost" disabled>報名已截止</button>${v.myStatus?'<p class="sub" style="font-size:13px">已過截止時間，要取消或更改請直接聯絡主辦人。</p>':''}`;
   else if(v.myStatus)btn=`${isM?`<button class="btn soft" data-a="${v.myBk?'join':'joinBk'}"${busy?' disabled':''}>${v.myBk?'改成報名正取':'改成報名備取'}</button>`:''}<button class="btn ghost" data-a="cancel"${busy?' disabled':''} style="${isM?'margin-top:10px':''}">${busy?'處理中…':'取消報名'}</button>`;
   else if(isM)btn=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn" data-a="join"${busy?' disabled':''}>${busy?'處理中…':'報名正取'}</button><button class="btn ghost" data-a="joinBk"${busy?' disabled':''}>報名備取</button></div>
     <p class="sub" style="font-size:13px">${main.length>=cap?'正取目前額滿，報名正取會先排在備取，有人取消就遞補。<br>':''}報名備取：先不佔正取名額，正取有人取消或需要補人時，主辦人再讓你遞補。</p>`;
@@ -222,7 +227,8 @@ function eventHtml(v){
     <p class="label">下次活動</p>
     <p class="big">${esc(ev.label||ev.date)}</p>
     <p class="sub">已報名 ${main.length} / ${cap} 人${wait.length?`，備取 ${wait.length} 人`:''}</p>
-    ${v.prio?`<p class="sub" style="font-size:13px">${v.prio.active?`季費成員 ${esc(v.prio.label)} 前報名可優先正取，臨打先列備取；之後依報名順序。`:`已依報名順序排序。`}</p>`:''}
+    ${ev.openLabel?`<p class="sub" style="font-size:13px">報名時間：${esc(ev.openLabel)} 起，${esc(ev.closeLabel)} 截止</p>`:''}
+    ${v.prio?`<p class="sub" style="font-size:13px">${v.prio.active?`季費會員 ${esc(v.prio.label)} 前報名可優先正取，臨打先列備取；之後依報名順序。`:`會員優先期已過（${esc(v.prio.label)}），依報名順序排。`}</p>`:''}
     ${status?`<div>${status}</div>`:''}
     ${btn}
     ${err?`<p class="msg">${esc(err)}</p>`:''}
@@ -281,7 +287,8 @@ function memberHtml(v){
       <li>季費預繳：每次 ${money(r.fee||0)} × ${total||'—'} 次${total?` ＝ ${money((r.fee||0)*total)}`:''}。</li>
       <li>沒來的那次，費用不會扣，會留在你的結餘裡。</li>
       <li>球錢另計，由當天出席的人平分，季末一起結算。</li>
-      <li>報名優先：打球日前最後一個週五 23:59 前，會員先報先排正取；臨打會排在備取。過了之後，依報名先後排順序。</li>
+      <li>報名時間：打球前 6 天 00:00 開始（例：週一打球 → 前一週的週二開始），打球當天 17:00 截止。</li>
+      <li>會員優先：打球前 3 天 23:59 前（例：週一打球 → 週五 23:59 前），會員先報先排正取，臨打排備取；之後依報名先後排順序。</li>
       <li>臨打每次 ${money(r.fee||0)}，不用預繳。</li>
       <li>會員名額 ${cap} 人，額滿後不再收。</li>
       <li>報名後名額保留 3 天，主辦人收到季費、確認後才是正式會員；逾期沒繳，名額會釋出。</li>
