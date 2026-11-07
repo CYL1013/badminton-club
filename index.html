@@ -683,10 +683,11 @@ function syncWeb(s,d){
   }else{
     att=att.concat(mainIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
     back=back.concat(waitIds.filter(id=>!rm.has(id)&&!att.includes(id)&&!back.includes(id)));
-    // 正取有空位：備取依序遞補（優先報名期間只補季費會員）
-    const act0=prioOn()&&Date.now()<priorityInfo(d).until;
-    for(let i=0;i<back.length&&att.length<rt('cap',s);){if(!stay.has(back[i])&&(!act0||isMember(s,back[i])))att.push(back.splice(i,1)[0]);else i++}
   }
+  // 正取有空位：備取依序遞補。優先報名期間只補季費會員、也不補你手動留在備取的人；
+  // 優先期過了就照備取順序補上（本人選「報名備取」的除外）
+  {const act0=prioOn()&&Date.now()<priorityInfo(d).until;
+    for(let i=0;i<back.length&&att.length<rt('cap',s);){const id=back[i];if(!bkNow.has(id)&&!(act0&&stay.has(id))&&(!act0||isMember(s,id)))att.push(back.splice(i,1)[0]);else i++}}
   const web=[...webIds];
   if(JSON.stringify([att,back,web])===before)return false;
   x.web=web;setList(s,d,att,back);return true;
