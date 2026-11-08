@@ -467,7 +467,7 @@ function rosterSnap(s,d){
   const att=attList(x),back=backList(x);if(!att.length&&!back.length)return null;
   const su=(ui.su||{})[d]||[];const web=new Set(x.web||[]);
   const code=id=>{const r=su.find(r=>!r.off&&byCode(r.c)&&byCode(r.c).id===id);return r?r.c:(codeKey(person(id))||'')};
-  const st=new Set(x.stay||[]);const e=(id,b)=>{const o={c:code(id),n:pname(id)};if(web.has(id))o.w=1;if(b)o.b=1;if(b&&st.has(id))o.k=(x.bkIds||[]).includes(id)?2:1;return o};
+  const st=new Set(x.stay||[]);const e=(id,b)=>{const o={c:code(id),n:pname(id)};if(web.has(id))o.w=1;if(b)o.b=1;if(b&&st.has(id))o.k=(x.bkIds||[]).includes(id)?2:1;if((x.bkIds||[]).includes(id))o.s=1;return o};
   return att.map(id=>e(id,false)).concat(back.map(id=>e(id,true)));
 }
 function buildSnapshot(){
