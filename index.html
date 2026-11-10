@@ -876,19 +876,31 @@ function mreqCard(s){
       <span class="row-btns" style="width:100%;margin:4px 0 0"><button type="button" class="btn sm pri" data-act="mreqOk" data-id="${r.id}" data-code="${esc(r.k)}" data-v="paid" ${full?'disabled':''}>已收季費 ${money(memberFee(s,r.id))}，加入</button><button type="button" class="btn sm" data-act="mreqOk" data-id="${r.id}" data-code="${esc(r.k)}" data-v="later" ${full?'disabled':''}>先加入，之後收</button><button type="button" class="btn sm warn ghost" data-act="mreqNo" data-id="${r.id}" data-code="${esc(r.k)}">不同意</button></span></li>`}).join('')}</ul>
     ${full?'<p class="warnnote">會員已滿，不能再加入。</p>':''}</section>`;
 }
+function personHist(id){
+  let n=0,last='';const seasons=[];
+  state.seasons.forEach(se=>{let k=0;Object.keys(se.sessions||{}).forEach(d=>{const x=se.sessions[d];if(x&&x.att&&x.att[id]){k++;if(d>last)last=d}});if(k){n+=k;seasons.push({name:se.name,n:k})}});
+  return {n,last,seasons};
+}
 function vPeople(s){
   const {ids,out}=calc(s);const cap=rt('cap',s);
   const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
-  const others=state.people.filter(p=>!out[p.id]);
+  const others=state.people.filter(p=>!out[p.id]).map(p=>({p,h:personHist(p.id)})).sort((a,b)=>(b.h.last||'').localeCompare(a.h.last||'')||a.p.name.localeCompare(b.p.name,'zh-Hant'));
+  const q=norm(ui.pq||'');const hit=id=>{if(!q)return true;const p=person(id);return [p.name,...(p.aliases||[]),p.code||''].some(x=>norm(x).includes(q))};
+  const hide=id=>hit(id)?'':' hidden';
   const li=id=>{const o=out[id];const open=ui.open===id;
     const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}${o.done?'<span class="tag m">已結清</span>':''}`
       :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}${o.done?'<span class="tag m">已結清</span>':''}`;
-    return `<li><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
+    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
+  const oli=({p,h:hh})=>{const id=p.id;const open=ui.open===id;
+    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(p.name)} <span class="muted small">${open?'▴':'▾'}</span></span><span class="small muted">${hh.n?`來過 ${hh.n} 次・最近 ${md(hh.last)}`:'還沒來過'}</span>${p.code?'':'<span class="pay due">沒代碼</span>'}
+      ${open?`<div class="pform"><p class="muted small" style="margin:0">${hh.n?`以前出席：${hh.seasons.map(x=>`${esc(x.name)} ${x.n} 次`).join('、')}`:'這個人還沒有出席紀錄（可能是剛註冊、或從 LINE 名單匯入）。'}</p></div>
+        <div class="row-btns" style="margin-top:6px"><button class="btn sm pri" data-act="mkMember" data-id="${id}">設為本季季費會員</button><button class="btn sm" data-act="mkGuestNext" data-id="${id}">加進下次打球名單</button></div>
+        ${personForm(s,id,null).replace(/<label>這一季身分[\s\S]*?<\/label>/,'')}`:''}</li>`};
   const rc=regCard(s);
-  return (rc?`<section class="card">${rc}</section>`:'')+mreqCard(s)+`<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
+  return (rc?`<section class="card">${rc}</section>`:'')+mreqCard(s)+`${state.people.length>12?`<div class="row-btns" style="margin:0 0 12px"><input type="search" id="pq" data-in="pq" value="${esc(ui.pq||'')}" placeholder="搜尋名字、LINE 稱呼或代碼" style="flex:1" aria-label="搜尋成員"></div>`:''}<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
     ${mem.length?`<ul class="list">${mem.map(li).join('')}</ul>`:'<p class="muted">還沒有季費會員。從下面新增，或把臨打設成季費會員。</p>'}</section>
   <section class="card"><h2>本季臨打</h2>${gst.length?`<ul class="list">${gst.map(li).join('')}</ul>`:'<p class="muted">這一季還沒有臨打。</p>'}</section>
-  ${others.length?`<section class="card"><h2>其他人</h2><p class="muted small">以前來過、這季還沒出現的人。點一下設為本季季費會員。</p><div class="chips">${others.map(p=>`<button class="chip" data-act="mkMember" data-id="${p.id}">${esc(p.name)}</button>`).join('')}</div></section>`:''}
+  ${others.length?`<section class="card"><h2>其他人（${others.length}）</h2><p class="muted small">這季還沒出現的人：以前來過的、剛註冊的。點名字可以看資料、改名字和代碼，或設為季費會員。</p><ul class="list">${others.map(oli).join('')}</ul></section>`:''}
   <section class="card"><h2>新增成員</h2><div class="row-btns"><input type="text" id="newName" placeholder="名字" style="flex:1"><select id="newRole"><option value="m">季費會員</option><option value="g">臨打</option></select><button class="btn pri" data-act="newPerson">新增</button></div></section>`;
 }
 function vBalls(s){
@@ -1151,6 +1163,10 @@ function act0(a,el){
       delete s.feePaid[id];delete s.carry[id];delete s.memberFee[id];delete s.settle[id];
       if(!other)state.people=state.people.filter(p=>p.id!==id);
       ui.open=null;save(other?`已從本季移除 ${nm}（他在其他季有紀錄，名字保留）`:`已刪除 ${nm}`);break}
+    case 'mkGuestNext':{const t=today();const d=s.dates.find(x=>x>=t);if(!d){toast('本季沒有下一次打球日');break}
+      const x=sess(s,d);if(x.att[id]||(x.backup||[]).includes(id)){toast(`${pname(id)} 已經在 ${md(d)} 名單裡`);break}
+      const att=attList(x),back=backList(x);if(att.length<rt('cap',s))att.push(id);else back.push(id);x.manual=true;setList(s,d,att,back);
+      save(`已把 ${pname(id)} 加進 ${md(d)} 名單（${att.includes(id)?'正取':'備取'}）`);break}
     case 'mkMember':{if(!s.members.includes(id))s.members.push(id);save(`${pname(id)} 設為季費會員`);break}
     case 'newPerson':{const nm=$('#newName').value.trim();if(!nm)return;if(findPerson(nm)){toast('已經有這個人了');return}const p=findOrCreate(nm);if($('#newRole').value==='m')s.members.push(p.id);save(`已新增 ${nm}`);break}
     case 'addPurchase':{const n=+$('#buyN').value,pr=+$('#buyP').value,d=$('#buyDate').value||today();if(!(n>0))return;s.purchases.push({date:d,buckets:n,price:pr||state.settings.bucketPrice});s.purchases.sort((a,b)=>a.date<b.date?-1:1);save('已記錄');break}
@@ -1255,7 +1271,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[role=button][data-act]')){e.preventDefault();act(e.target.dataset.act,e.target)}
   if(e.key==='Enter'&&e.target.id==='guestName')act('addGuest',e.target);if(e.key==='Enter'&&e.target.id==='newName')act('newPerson',e.target)});
 document.addEventListener('change',e=>{const el=e.target.closest('[data-ch]');if(el)change(el)});
-document.addEventListener('input',e=>{if(e.target.dataset.in==='line')ui.lineText=e.target.value});
+document.addEventListener('input',e=>{if(e.target.dataset.in==='line')ui.lineText=e.target.value;
+  if(e.target.dataset.in==='pq'){ui.pq=e.target.value;const q=norm(ui.pq);document.querySelectorAll('[data-pn]').forEach(li=>{const p=person(li.dataset.pn);li.hidden=!!q&&!(p&&[p.name,...(p.aliases||[]),p.code||''].some(x=>norm(x).includes(q)))})}});
 
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./service-worker.js').catch(()=>{})})}
 boot();
