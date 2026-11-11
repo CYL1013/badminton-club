@@ -483,10 +483,16 @@ function buildSnapshot(){
       paid:o?(member?o.feePaid:o.paid):0,carry:o?o.carry:0,balance:o?Math.round(o.balance):0,
       remain:member?o.remain:null,seasonFee:member?o.fee:null,done:!!(o&&o.done),renew:member?((s.settle[p.id]||{}).renew??null):null}});
   const open=!(state.signup&&state.signup.open===false);
+  const su=state.signup||{};
+  const evSnap=d=>({date:d,label:`${md(d)}（週${wd(d)}）`,cap:rt('cap',s),open,time:su.time||'',place:su.place||'',
+    priorityUntil:prioOn()?priorityInfo(d).until:0,priorityLabel:priorityInfo(d).label,openAt:openInfo(d).at,openLabel:openInfo(d).label,
+    closeAt:closeInfo(d).at,closeLabel:closeInfo(d).label,roster:rosterSnap(s,d)});
   return {updated:Date.now(),season:s.name,memberCount:s.members.length,
     rates:{court:rt('court',s),fee:fee(),ballPrice:Math.round(ballPrice()*100)/100,cap:rt('cap',s)},
     sessions:{total:s.dates.length,played:s.dates.filter(d=>d<=t&&Object.keys(getSess(s,d).att||{}).length).length},
-    event:nx?{date:nx,label:`${md(nx)}（週${wd(nx)}）`,cap:rt('cap',s),open,priorityUntil:prioOn()?priorityInfo(nx).until:0,priorityLabel:priorityInfo(nx).label,openAt:openInfo(nx).at,openLabel:openInfo(nx).label,closeAt:closeInfo(nx).at,closeLabel:closeInfo(nx).label,roster:rosterSnap(s,nx)}:null,
+    event:nx?evSnap(nx):null,
+    // 接下來幾次的活動：就算主辦人幾天沒打開帳本，報名頁和 LINE 也會自動換到下一次
+    upcoming:s.dates.filter(d=>d>=t).slice(0,3).map(evSnap),
     renew:renewOpen()?{open:true,fee:renewFee(s).F,n:renewFee(s).n}:null,
     people};
 }
@@ -574,6 +580,10 @@ function vSignupAdmin(s){
   return `<section class="card"><h2>報名頁</h2>
     <p class="small">${nx?`目前開放報名的是 <b>${md(nx)}（週${wd(nx)}）</b>，也就是下一個打球日。`:'本季已經沒有下一個打球日，報名頁不會顯示活動。'}</p>
     <div class="row-btns"><span class="small">狀態：<b>${open?'開放中':'已關閉'}</b></span><button type="button" class="btn sm" data-act="suToggle">${open?'關閉報名':'重新開放報名'}</button></div>
+    <h3 style="margin-top:14px">打球時間與地點</h3>
+    <div class="pform"><label>時間<input type="text" id="su-time" data-ch="suInfo" data-k="time" value="${esc((state.signup||{}).time||'')}" placeholder="例如 19:00–21:00"></label>
+    <label>地點<input type="text" id="su-place" data-ch="suInfo" data-k="place" value="${esc((state.signup||{}).place||'')}" placeholder="例如 湖口國中體育館"></label></div>
+    <p class="muted small" style="margin-top:0">會顯示在報名頁，LINE 提醒訊息也會寫上。</p>
     <h3 style="margin-top:14px">報名順序</h3>
     <div class="row-btns"><span class="small">季費成員優先：<b>${prioOn()?'開':'關'}</b></span><button type="button" class="btn sm" data-act="suPrio">${prioOn()?'關閉':'開啟'}</button></div>
     <p class="muted small">${nx?`本次：<b>${openInfo(nx).label}</b> 開始報名，<b>${closeInfo(nx).label}</b> 截止。`:''}報名時間依打球日自動推算：打球前 6 天 00:00 開始、打球當天 17:00 截止。${prioOn()?`打球前 3 天 23:59 前季費會員優先正取，臨打先列備取；之後依報名先後順序。`:'目前完全依報名先後順序排，不分成員或臨打。'}</p>
@@ -1244,6 +1254,7 @@ function change0(el){
       if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
       if(k){const dup=state.people.find(q=>q.id!==id&&codeKey(q)===k);if(dup){toast(`代碼「${v}」已經被 ${dup.name} 使用，請換一個`);render();return}}
       person(id).code=v;save(v?'代碼已更新':'代碼已清除');break}
+    case 'suInfo':{state.signup={...(state.signup||{}),[el.dataset.k]:el.value.trim()};save('已更新打球'+(el.dataset.k==='time'?'時間':'地點'));break}
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;if(s){s.rates=s.rates||{};s.rates[el.dataset.k]=v}save()}break}
     case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
     case 'plan':{const P=planOf(el.dataset.kind);if(!P)break;P[el.dataset.k]=el.value;render();break}

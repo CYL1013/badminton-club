@@ -227,6 +227,7 @@ function eventHtml(v){
     <p class="label">下次活動</p>
     <p class="big">${esc(ev.label||ev.date)}</p>
     <p class="sub">已報名 ${main.length} / ${cap} 人${wait.length?`，備取 ${wait.length} 人`:''}</p>
+    ${ev.time||ev.place?`<p class="sub" style="margin-top:-4px">${ev.time?`🕖 ${esc(ev.time)}`:''}${ev.time&&ev.place?'　':''}${ev.place?`📍 ${esc(ev.place)}`:''}</p>`:''}
     ${ev.openLabel?`<p class="sub" style="font-size:13px">報名時間：${esc(ev.openLabel)} 起，${esc(ev.closeLabel)} 截止</p>`:''}
     ${v.prio?`<p class="sub" style="font-size:13px">${v.prio.active?`季費會員 ${esc(v.prio.label)} 前報名可優先正取，臨打先列備取；之後依報名順序。`:`會員優先期已過（${esc(v.prio.label)}），依報名順序排。`}</p>`:''}
     ${status?`<div>${status}</div>`:''}
