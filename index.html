@@ -145,6 +145,8 @@ table.g tfoot td{color:var(--muted)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:4px 11px;font-size:13px}
 .seg button.on{background:var(--court);color:var(--court-ink)}
+.tag.line{background:#06c75522;color:#068a3d}
+.tag.off{background:transparent;color:var(--muted);border:1px dashed var(--line)}
 .roster li{display:flex;align-items:center;gap:8px}
 .roster li.sel{background:var(--court-soft)}
 .roster .idx{min-width:2.2em;white-space:nowrap;text-align:right;flex:none}
@@ -506,6 +508,17 @@ async function publishSnap(force){
   if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render();
 }
 const MEMBER_HOLD=3*86400000;
+const NEED_BACKEND=20261112;   // 這個帳本需要的 Apps Script 版本
+async function loadLineInfo(force){
+  if(!CFG||!CFG.url||mode!=='cloud')return;
+  if(!force&&ui.lineAt&&Date.now()-ui.lineAt<120000)return;
+  ui.lineAt=Date.now();
+  try{const j=await jsonpCall(CFG.url,{action:'lineinfo',token:CFG.pw});
+    if(j&&j.ok){ui.line=j;ui.beVer=j.ver||0;render()}
+    else if(j&&j.error==='unknown_action'){ui.beVer=0;ui.line=null;render()}}catch(e){}
+}
+function lineBound(id){const p=person(id);return !!(ui.line&&p&&codeKey(p)&&(ui.line.bound||[]).includes(codeKey(p)))}
+function lineTag(id){if(!ui.line||!ui.line.token)return '';return lineBound(id)?'<span class="tag line">LINE ✓</span>':'<span class="tag off">未綁 LINE</span>'}
 async function loadSignups(){
   if(!CFG||!CFG.url)return;
   try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
@@ -532,7 +545,7 @@ async function loadSignups(){
         ui.mreqs.sort((a,b)=>a.t-b.t);
         if(rch.length)save(rch.join('；'));
         Object.entries(del).forEach(([f,list])=>{if(list.length)jsonpCall(CFG.url,{action:'reqdel',token:CFG.pw,codes:list.join(','),...(f==='all'?{}:{field:f})}).catch(()=>{})})}
-      ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();
+      ui.su=j.signups||{};ui.regs=j.regs||{};ui.suAt=Date.now();ui.beVer=j.ver||0;
       if(syncAllWeb())save();if(ui.tab==='session'||ui.tab==='people'||ui.tab==='settle'||(ui.tab==='more'&&ui.mo==='signup'))render()}else if(j&&j.error==='bad_password'){}}
   catch(e){ui.suErr=true}
 }
@@ -571,6 +584,22 @@ function vMore(s){
   const bar=`<div class="row-btns">${seg([['balls','買球・用球'],['signup','報名頁'],['settings','設定']],ui.mo,'mmode')}</div>`;
   return bar+(ui.mo==='signup'?vSignupAdmin(s):ui.mo==='settings'?vSettings(s):vBalls(s));
 }
+function lineCard(s){
+  const L=ui.line;
+  if(mode!=='cloud')return '';
+  if(!L)return `<section class="card"><div class="row-btns"><h2>LINE 官方帳號</h2><button type="button" class="btn sm right" data-act="lineRefresh">檢查</button></div><p class="muted small">${ui.beVer!=null&&ui.beVer<NEED_BACKEND?'Apps Script 還是舊版，請先更新 Code.gs 並部署新版本。':'讀取中…'}</p></section>`;
+  const ok=(b,t,f)=>`<li><span class="nm">${t}</span><span class="pay ${b?'ok':'due'}">${b?'✓':'✗'} ${b?'':f}</span></li>`;
+  const people=state.people.filter(p=>codeKey(p)&&(isMember(s,p.id)||Object.values(s.sessions).some(x=>x.att&&x.att[p.id])));
+  const unb=people.filter(p=>!lineBound(p.id));
+  const left=L.quota!=null?L.quota-L.used:null;
+  return `<section class="card"><div class="row-btns"><h2>LINE 官方帳號</h2><button type="button" class="btn sm right" data-act="lineRefresh">重新整理</button></div>
+    <ul class="list">${ok(L.token,'金鑰 LINE_TOKEN','到 Apps Script「指令碼屬性」設定')}${ok(L.menus,'圖文選單','執行 lineSetupMenus')}${ok(L.reminders,'自動提醒','執行 lineSetupReminders')}${ok(L.admins>0,'主辦人通知','用 LINE 傳「主辦人 密碼」給官方帳號')}</ul>
+    <div class="totals" style="margin-top:10px"><div><h3>已綁定</h3><span class="bal">${(L.bound||[]).length} 人</span></div><div><h3>本月已用</h3><span class="bal">${L.used!=null?L.used+' 則':'—'}</span></div><div><h3>本月剩下</h3><span class="bal ${left!=null&&left<30?'neg':''}">${left!=null?left+' 則':'不限'}</span></div></div>
+    ${left!=null&&left<30?'<p class="warnnote">免費額度快用完了，自動提醒在額度不夠時會自動跳過。</p>':''}
+    ${unb.length?`<p class="small" style="margin-bottom:4px">還沒綁定 LINE（${unb.length}）：</p><div class="chips">${unb.map(p=>`<span class="chip" style="cursor:default">${esc(p.name)}</span>`).join('')}</div><p class="muted small">請他們加官方帳號好友，傳「綁定 自己的代碼」。</p>`:'<p class="muted small">本季的人都綁定好了 👍</p>'}
+    ${L.last?`<p class="muted small">最近一次 LINE 紀錄：${esc(L.last)}</p>`:''}
+  </section>`;
+}
 function vSignupAdmin(s){
   const open=!(state.signup&&state.signup.open===false);
   const dup=dupCodes();
@@ -591,6 +620,7 @@ function vSignupAdmin(s){
     <div class="row-btns"><button type="button" class="btn pri" data-act="suLink">複製報名頁連結</button><button type="button" class="btn sm" data-act="suRefresh">重新整理資料</button></div>
     <p class="muted small">把連結貼到 LINE 群組。成員第一次用代碼登入，也可以自己註冊（代碼只能是數字），你在「本週 → 名單來源」確認後，他才看得到自己的出席與費用。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
   </section>
+  ${lineCard(s)}
   <section class="card"><h2>季費會員對照（${s.members.length}/${rt('cap',s)}）</h2>
     <p class="muted small">報名頁顯示的會員人數會跟這裡一樣。沒有代碼的人仍算在人數裡，但他不能登入報名頁。</p>
     <ul class="list">${s.members.map(id=>{const p=person(id);const k=codeKey(p);
@@ -900,7 +930,7 @@ function vPeople(s){
   const li=id=>{const o=out[id];const open=ui.open===id;
     const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}${o.done?'<span class="tag m">已結清</span>':''}`
       :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}${o.done?'<span class="tag m">已結清</span>':''}`;
-    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${right}${open?personForm(s,id,o):''}</li>`};
+    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${lineTag(id)}${right}${open?personForm(s,id,o):''}</li>`};
   const oli=({p,h:hh})=>{const id=p.id;const open=ui.open===id;
     return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(p.name)} <span class="muted small">${open?'▴':'▾'}</span></span><span class="small muted">${hh.n?`來過 ${hh.n} 次・最近 ${md(hh.last)}`:'還沒來過'}</span>${p.code?'':'<span class="pay due">沒代碼</span>'}
       ${open?`<div class="pform"><p class="muted small" style="margin:0">${hh.n?`以前出席：${hh.seasons.map(x=>`${esc(x.name)} ${x.n} 次`).join('、')}`:'這個人還沒有出席紀錄（可能是剛註冊、或從 LINE 名單匯入）。'}</p></div>
@@ -973,7 +1003,7 @@ function vFullSettle(s){
     return `<div class="srow ${done?'done':''}"><div><span class="nm">${esc(pname(id))}</span> ${o.member?'<span class="tag m">季費</span>':'<span class="tag">臨打</span>'}</div><div class="bal ${b>0?'pos':b<0?'neg':''}">${signed(b)}</div>
       <div class="figs">${figs}</div>
       <div class="acts">${o.member?`<span class="seg"><button class="${st.renew===true?'on':''}" data-act="renew" data-id="${id}" data-v="1">續約</button><button class="${st.renew===false?'on':''}" data-act="renew" data-id="${id}" data-v="0">不續</button></span>`:''}<span class="hint">${hint}</span>
-      <button type="button" class="btn sm" data-act="copyMsg" data-id="${id}">複製訊息</button><label class="ck right"><input type="checkbox" id="done-${id}" data-ch="done" data-id="${id}" ${done?'checked':''}>已結清</label></div></div>`}).join('');
+      <button type="button" class="btn sm" data-act="copyMsg" data-id="${id}">複製訊息</button>${lineBound(id)?`<button type="button" class="btn sm pri" data-act="lineMsg" data-id="${id}">LINE 傳給他</button>`:''}<label class="ck right"><input type="checkbox" id="done-${id}" data-ch="done" data-id="${id}" ${done?'checked':''}>已結清</label></div></div>`}).join('');
   return `<section class="card"><h2>${esc(s.name)} 結算</h2>
     <p class="muted small">結餘 = 已繳 − 場地 − 球錢（＋上季結轉）。勾「已結清」代表現金收／退完了，不會再帶到下一季。要開新的一季，請到「續約・開新季」。</p>
     <div class="totals"><div><h3>要退</h3><span class="bal pos">${money(refund)}</span></div><div><h3>要收</h3><span class="bal neg">${money(collect)}</span></div><div><h3>帶到下季折抵</h3><span class="bal">${signed(carryOn)}</span></div></div>
@@ -1078,8 +1108,10 @@ function render(){
     if(!state||!state.seasons.length){if(!state)state=normalize({});app.innerHTML=`<div class="wrap">${header(null)}${vEmpty()}</div>`;return}
     const s=S();
     const v={session:vSession,grid:vGrid,people:vPeople,more:vMore,balls:vMore,settle:vSettle}[ui.tab]||vSession;
-    app.innerHTML=`<div class="wrap">${header(s)}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
+    const old=mode==='cloud'&&ui.beVer!=null&&ui.beVer<NEED_BACKEND;
+    app.innerHTML=`<div class="wrap">${header(s)}${old?`<p class="warnnote" style="margin:0 0 12px">⚠️ Apps Script 不是最新版，報名頁和 LINE 可能跟帳本對不上。請把最新的 Code.gs 貼上，再「部署 → 管理部署作業 → 編輯 → 新版本 → 部署」。</p>`:''}${s.closed?'<p class="note">這一季已經結束，仍可修改紀錄。</p>':''}${v(s)}</div>`;
     document.querySelectorAll('[data-keep]').forEach(n=>{if(keep[n.dataset.keep]!=null)n.scrollLeft=keep[n.dataset.keep]});
+    if(!ui.lineAt&&(ui.tab==='people'||ui.tab==='settle'||ui.tab==='more'))setTimeout(()=>loadLineInfo(),0);
     if(ui.centerDate){ui.centerDate=false;const on=document.querySelector('.dchip.on'),bar=document.querySelector('.dates');
       if(on&&bar)bar.scrollLeft=on.offsetLeft-(bar.clientWidth-on.offsetWidth)/2}
     if(typeof sy==='number'&&Math.abs(window.scrollY-sy)>1)window.scrollTo(0,sy);
@@ -1119,7 +1151,7 @@ function cycleCell(s,id,d){const x=sess(s,d);const a=x.att[id];
   else if(!a)x.att[id]={paid:fee()};else if((a.paid||0)>=fee())x.att[id]={paid:0};else delete x.att[id];
   save()}
 function act0(a,el){
-  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;ui.sel=new Set();if(ui.tab==='session'||ui.tab==='people')loadSignups();return}
+  if(a==='tab'){ui.tab=el.dataset.v;ui.open=null;ui.centerDate=true;try{localStorage.setItem('bm_tab',ui.tab)}catch(e){}render();window.scrollTo(0,0);ui.srcOpen=false;ui.sel=new Set();if(ui.tab==='session'||ui.tab==='people')loadSignups();if(ui.tab==='people'||ui.tab==='settle'||ui.tab==='more')loadLineInfo();return}
   const s=state&&state.seasons.length?S():null;const id=el.dataset.id;
   switch(a){
     case 'mmode':ui.mo=el.dataset.v;render();window.scrollTo(0,0);if(ui.mo==='signup')loadSignups();break;
@@ -1185,6 +1217,10 @@ function act0(a,el){
     case 'smode':ui.sm=el.dataset.v;render();window.scrollTo(0,0);break;
     case 'ballPaid':{const st=s.settle[id]||{};if(calc(s).out[id]?.done){toast('他已結清，球錢已算在內。要改的話請先到完整結算取消結清');return}s.settle[id]={...st,ballPaid:!st.ballPaid};save();break}
     case 'ballAll':{const on=el.dataset.v==='1';ballRows(s).forEach(r=>{const st=s.settle[r.id]||{};s.settle[r.id]={...st,ballPaid:on}});save(on?'都標示為已收':'都改回未收');break}
+    case 'lineMsg':{const p=person(id);const t=personMsg(s,id);toast('傳送中…');
+      jsonpCall(CFG.url,{action:'linepush',token:CFG.pw,code:codeKey(p),text:t},20000).then(j=>{
+        if(j&&j.ok)toast(`已用 LINE 傳給 ${p.name}`);else toast(j&&j.error==='not_bound'?`${p.name} 還沒綁定 LINE，請用複製的`:'LINE 傳送失敗，請用複製的')},()=>toast('連不上，請用複製的'));break}
+    case 'lineRefresh':loadLineInfo(true);toast('重新整理中…');break;
     case 'copyMsg':{const t=personMsg(s,id);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼給他就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'newSeason':ui.ns=nsDefaults(s);ui.sm='renew';render();{const c=document.getElementById('ns-card');if(c)c.scrollIntoView()}break;
