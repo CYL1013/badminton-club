@@ -508,7 +508,7 @@ async function publishSnap(force){
   if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render();
 }
 const MEMBER_HOLD=3*86400000;
-const NEED_BACKEND=20261112;   // 這個帳本需要的 Apps Script 版本
+const NEED_BACKEND=20261113;   // 這個帳本需要的 Apps Script 版本
 async function loadLineInfo(force){
   if(!CFG||!CFG.url||mode!=='cloud')return;
   if(!force&&ui.lineAt&&Date.now()-ui.lineAt<120000)return;
@@ -597,6 +597,14 @@ function lineCard(s){
     <div class="totals" style="margin-top:10px"><div><h3>已綁定</h3><span class="bal">${(L.bound||[]).length} 人</span></div><div><h3>本月已用</h3><span class="bal">${L.used!=null?L.used+' 則':'—'}</span></div><div><h3>本月剩下</h3><span class="bal ${left!=null&&left<30?'neg':''}">${left!=null?left+' 則':'不限'}</span></div></div>
     ${left!=null&&left<30?'<p class="warnnote">免費額度快用完了，自動提醒在額度不夠時會自動跳過。</p>':''}
     ${unb.length?`<p class="small" style="margin-bottom:4px">還沒綁定 LINE（${unb.length}）：</p><div class="chips">${unb.map(p=>`<span class="chip" style="cursor:default">${esc(p.name)}</span>`).join('')}</div><p class="muted small">請他們加官方帳號好友，傳「綁定 自己的代碼」。</p>`:'<p class="muted small">本季的人都綁定好了 👍</p>'}
+    ${(L.pending||[]).length?`<h3 style="margin-top:14px">加入了、還沒綁定（${L.pending.length}）</h3>
+      <p class="muted small" style="margin-top:0">這些人加了官方帳號好友但還沒綁定代碼（括號是他的 LINE 名稱）。知道是誰的話，直接選人幫他綁定；他會收到一則通知。新來的人會自己傳「註冊 名字 代碼」。</p>
+      <ul class="list">${L.pending.map(x=>{const q=norm(x.n||'');const cand=state.people.filter(p=>codeKey(p)).sort((a,b)=>(isMember(s,b.id)-isMember(s,a.id))||a.name.localeCompare(b.name,'zh-Hant'));
+        const guess=q?cand.find(p=>[p.name,...(p.aliases||[])].some(n=>{const k=norm(n);return k&&(k.includes(q)||q.includes(k))})):null;
+        const d=x.t?new Date(x.t):null;
+        return `<li style="flex-wrap:wrap;gap:6px"><span class="nm">${esc(x.n||'（沒有名稱）')}</span><span class="muted small">${d?`${d.getMonth()+1}/${d.getDate()} 加入`:''}</span>
+          <span class="row-btns" style="width:100%;margin:4px 0 0"><select data-ch="lineBindSel" data-uid="${esc(x.uid)}" style="flex:1" aria-label="幫 ${esc(x.n)} 綁定"><option value="">他是誰？選一個人綁定…</option>${cand.map(p=>`<option value="${p.id}" ${guess&&guess.id===p.id?'selected':''}>${esc(p.name)}${isMember(s,p.id)?'（季費）':''}${lineBound(p.id)?'（已綁其他 LINE）':''}</option>`).join('')}</select>
+          ${guess?`<button type="button" class="btn sm pri" data-act="lineBindGo" data-uid="${esc(x.uid)}" data-id="${guess.id}">綁定為 ${esc(guess.name)}</button>`:''}<button type="button" class="btn sm ghost" data-act="lineForget" data-uid="${esc(x.uid)}">不用管</button></span></li>`}).join('')}</ul>`:''}
     ${L.last?`<p class="muted small">最近一次 LINE 紀錄：${esc(L.last)}</p>`:''}
   </section>`;
 }
@@ -1220,6 +1228,9 @@ function act0(a,el){
     case 'lineMsg':{const p=person(id);const t=personMsg(s,id);toast('傳送中…');
       jsonpCall(CFG.url,{action:'linepush',token:CFG.pw,code:codeKey(p),text:t},20000).then(j=>{
         if(j&&j.ok)toast(`已用 LINE 傳給 ${p.name}`);else toast(j&&j.error==='not_bound'?`${p.name} 還沒綁定 LINE，請用複製的`:'LINE 傳送失敗，請用複製的')},()=>toast('連不上，請用複製的'));break}
+    case 'lineBindGo':{const uid=el.dataset.uid;const p=person(id);if(!p||!codeKey(p)){toast('這個人還沒有代碼，先到「成員」幫他設定');break}
+      toast('綁定中…');jsonpCall(CFG.url,{action:'linebind',token:CFG.pw,uid,code:codeKey(p)}).then(j=>{if(j&&j.ok){toast(`已把 LINE 綁定為 ${p.name}，他會收到通知`);loadLineInfo(true)}else toast('綁定失敗：'+((j&&j.error)||'連不上'))},()=>toast('連不上，請再試一次'));break}
+    case 'lineForget':{const uid=el.dataset.uid;if(ui.line)ui.line.pending=(ui.line.pending||[]).filter(x=>x.uid!==uid);render();jsonpCall(CFG.url,{action:'lineforget',token:CFG.pw,uid}).catch(()=>{});break}
     case 'lineRefresh':loadLineInfo(true);toast('重新整理中…');break;
     case 'copyMsg':{const t=personMsg(s,id);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼給他就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
@@ -1290,6 +1301,7 @@ function change0(el){
       if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
       if(k){const dup=state.people.find(q=>q.id!==id&&codeKey(q)===k);if(dup){toast(`代碼「${v}」已經被 ${dup.name} 使用，請換一個`);render();return}}
       person(id).code=v;save(v?'代碼已更新':'代碼已清除');break}
+    case 'lineBindSel':{if(!el.value)return;act('lineBindGo',{dataset:{uid:el.dataset.uid,id:el.value}});break}
     case 'suInfo':{state.signup={...(state.signup||{}),[el.dataset.k]:el.value.trim()};save('已更新打球'+(el.dataset.k==='time'?'時間':'地點'));break}
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;if(s){s.rates=s.rates||{};s.rates[el.dataset.k]=v}save()}break}
     case 'ns':ui.ns[el.dataset.k]=el.value;if(el.dataset.k!=='name')render();break;
