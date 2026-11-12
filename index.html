@@ -508,7 +508,7 @@ async function publishSnap(force){
   if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render();
 }
 const MEMBER_HOLD=3*86400000;
-const NEED_BACKEND=20261113;   // 這個帳本需要的 Apps Script 版本
+const NEED_BACKEND=20261114;   // 這個帳本需要的 Apps Script 版本
 async function loadLineInfo(force){
   if(!CFG||!CFG.url||mode!=='cloud')return;
   if(!force&&ui.lineAt&&Date.now()-ui.lineAt<120000)return;
@@ -521,7 +521,7 @@ function lineBound(id){const p=person(id);return !!(ui.line&&p&&codeKey(p)&&(ui.
 function lineTag(id){if(!ui.line||!ui.line.token)return '';return lineBound(id)?'<span class="tag line">LINE ✓</span>':'<span class="tag off">未綁 LINE</span>'}
 async function loadSignups(){
   if(!CFG||!CFG.url)return;
-  try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw});
+  try{const j=await jsonpCall(CFG.url,{action:'signups',token:CFG.pw,self:CFG.url});
     if(j&&j.ok){
       // 成員自己改過代碼：把新代碼同步到成員資料
       const ren=j.renames||{};const done=[];let changed=false;
