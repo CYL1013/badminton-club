@@ -508,7 +508,7 @@ async function publishSnap(force){
   if(ui.tab==='session'||(ui.tab==='more'&&ui.mo==='signup'))render();
 }
 const MEMBER_HOLD=3*86400000;
-const NEED_BACKEND=20261114;   // 這個帳本需要的 Apps Script 版本
+const NEED_BACKEND=20261115;   // 這個帳本需要的 Apps Script 版本
 async function loadLineInfo(force){
   if(!CFG||!CFG.url||mode!=='cloud')return;
   if(!force&&ui.lineAt&&Date.now()-ui.lineAt<120000)return;
@@ -517,6 +517,7 @@ async function loadLineInfo(force){
     if(j&&j.ok){ui.line=j;ui.beVer=j.ver||0;render()}
     else if(j&&j.error==='unknown_action'){ui.beVer=0;ui.line=null;render()}}catch(e){}
 }
+function codeTag(id,dup){const p=person(id);const k=codeKey(p);if(!k)return '<span class="tag off">沒代碼</span>';if(dup&&dup.has(k))return '<span class="pay due">代碼重複</span>';if(!/^\d{3,12}$/.test(k))return '<span class="pay due">代碼格式不對</span>';return ''}
 function lineBound(id){const p=person(id);return !!(ui.line&&p&&codeKey(p)&&(ui.line.bound||[]).includes(codeKey(p)))}
 function lineTag(id){if(!ui.line||!ui.line.token)return '';return lineBound(id)?'<span class="tag line">LINE ✓</span>':'<span class="tag off">未綁 LINE</span>'}
 async function loadSignups(){
@@ -584,6 +585,16 @@ function vMore(s){
   const bar=`<div class="row-btns">${seg([['balls','買球・用球'],['signup','報名頁'],['settings','設定']],ui.mo,'mmode')}</div>`;
   return bar+(ui.mo==='signup'?vSignupAdmin(s):ui.mo==='settings'?vSettings(s):vBalls(s));
 }
+function linePendingHtml(s){const L=ui.line;if(!L||!(L.pending||[]).length)return '';
+  return `<h3 style="margin-top:14px">LINE 加入了、還沒綁定（${L.pending.length}）</h3>
+      <p class="muted small" style="margin-top:0">這些人加了官方帳號好友但還沒綁定代碼（括號是他的 LINE 名稱）。知道是誰的話，直接選人幫他綁定；他會收到一則通知。新來的人會自己傳「註冊 名字 代碼」。</p>
+      <ul class="list">${L.pending.map(x=>{const q=norm(x.n||'');const cand=state.people.filter(p=>codeKey(p)).sort((a,b)=>(isMember(s,b.id)-isMember(s,a.id))||a.name.localeCompare(b.name,'zh-Hant'));
+        const guess=q?cand.find(p=>[p.name,...(p.aliases||[])].some(n=>{const k=norm(n);return k&&(k.includes(q)||q.includes(k))})):null;
+        const d=x.t?new Date(x.t):null;
+        return `<li style="flex-wrap:wrap;gap:6px"><span class="nm">${esc(x.n||'（沒有名稱）')}</span><span class="muted small">${d?`${d.getMonth()+1}/${d.getDate()} 加入`:''}</span>
+          <span class="row-btns" style="width:100%;margin:4px 0 0"><select data-ch="lineBindSel" data-uid="${esc(x.uid)}" style="flex:1" aria-label="幫 ${esc(x.n)} 綁定"><option value="">他是誰？選一個人綁定…</option>${cand.map(p=>`<option value="${p.id}" ${guess&&guess.id===p.id?'selected':''}>${esc(p.name)}${isMember(s,p.id)?'（季費）':''}${lineBound(p.id)?'（已綁其他 LINE）':''}</option>`).join('')}</select>
+          ${guess?`<button type="button" class="btn sm pri" data-act="lineBindGo" data-uid="${esc(x.uid)}" data-id="${guess.id}">綁定為 ${esc(guess.name)}</button>`:''}<button type="button" class="btn sm ghost" data-act="lineForget" data-uid="${esc(x.uid)}">不用管</button></span></li>`}).join('')}</ul>`;
+}
 function lineCard(s){
   const L=ui.line;
   if(mode!=='cloud')return '';
@@ -596,15 +607,8 @@ function lineCard(s){
     <ul class="list">${ok(L.token,'金鑰 LINE_TOKEN','到 Apps Script「指令碼屬性」設定')}${ok(L.menus,'圖文選單','執行 lineSetupMenus')}${ok(L.reminders,'自動提醒','執行 lineSetupReminders')}${ok(L.admins>0,'主辦人通知','用 LINE 傳「主辦人 密碼」給官方帳號')}</ul>
     <div class="totals" style="margin-top:10px"><div><h3>已綁定</h3><span class="bal">${(L.bound||[]).length} 人</span></div><div><h3>本月已用</h3><span class="bal">${L.used!=null?L.used+' 則':'—'}</span></div><div><h3>本月剩下</h3><span class="bal ${left!=null&&left<30?'neg':''}">${left!=null?left+' 則':'不限'}</span></div></div>
     ${left!=null&&left<30?'<p class="warnnote">免費額度快用完了，自動提醒在額度不夠時會自動跳過。</p>':''}
-    ${unb.length?`<p class="small" style="margin-bottom:4px">還沒綁定 LINE（${unb.length}）：</p><div class="chips">${unb.map(p=>`<span class="chip" style="cursor:default">${esc(p.name)}</span>`).join('')}</div><p class="muted small">請他們加官方帳號好友，傳「綁定 自己的代碼」。</p>`:'<p class="muted small">本季的人都綁定好了 👍</p>'}
-    ${(L.pending||[]).length?`<h3 style="margin-top:14px">加入了、還沒綁定（${L.pending.length}）</h3>
-      <p class="muted small" style="margin-top:0">這些人加了官方帳號好友但還沒綁定代碼（括號是他的 LINE 名稱）。知道是誰的話，直接選人幫他綁定；他會收到一則通知。新來的人會自己傳「註冊 名字 代碼」。</p>
-      <ul class="list">${L.pending.map(x=>{const q=norm(x.n||'');const cand=state.people.filter(p=>codeKey(p)).sort((a,b)=>(isMember(s,b.id)-isMember(s,a.id))||a.name.localeCompare(b.name,'zh-Hant'));
-        const guess=q?cand.find(p=>[p.name,...(p.aliases||[])].some(n=>{const k=norm(n);return k&&(k.includes(q)||q.includes(k))})):null;
-        const d=x.t?new Date(x.t):null;
-        return `<li style="flex-wrap:wrap;gap:6px"><span class="nm">${esc(x.n||'（沒有名稱）')}</span><span class="muted small">${d?`${d.getMonth()+1}/${d.getDate()} 加入`:''}</span>
-          <span class="row-btns" style="width:100%;margin:4px 0 0"><select data-ch="lineBindSel" data-uid="${esc(x.uid)}" style="flex:1" aria-label="幫 ${esc(x.n)} 綁定"><option value="">他是誰？選一個人綁定…</option>${cand.map(p=>`<option value="${p.id}" ${guess&&guess.id===p.id?'selected':''}>${esc(p.name)}${isMember(s,p.id)?'（季費）':''}${lineBound(p.id)?'（已綁其他 LINE）':''}</option>`).join('')}</select>
-          ${guess?`<button type="button" class="btn sm pri" data-act="lineBindGo" data-uid="${esc(x.uid)}" data-id="${guess.id}">綁定為 ${esc(guess.name)}</button>`:''}<button type="button" class="btn sm ghost" data-act="lineForget" data-uid="${esc(x.uid)}">不用管</button></span></li>`}).join('')}</ul>`:''}
+    <p class="muted small">${unb.length?`本季還有 ${unb.length} 人沒綁定 LINE，可到「成員」頁用「未綁 LINE」篩選查看。`:'本季的人都綁定好了 👍'}</p>
+    ${(L.pending||[]).length?`<p class="small">有 ${L.pending.length} 個人加了官方帳號但還沒綁定，請到「成員」頁最上面處理。</p>`:''}
     ${L.last?`<p class="muted small">最近一次 LINE 紀錄：${esc(L.last)}</p>`:''}
   </section>`;
 }
@@ -629,17 +633,9 @@ function vSignupAdmin(s){
     <p class="muted small">把連結貼到 LINE 群組。成員第一次用代碼登入，也可以自己註冊（代碼只能是數字），你在「本週 → 名單來源」確認後，他才看得到自己的出席與費用。${ui.pubAt?`報名頁資料上次更新：${new Date(ui.pubAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`:''}</p>
   </section>
   ${lineCard(s)}
-  <section class="card"><h2>季費會員對照（${s.members.length}/${rt('cap',s)}）</h2>
-    <p class="muted small">報名頁顯示的會員人數會跟這裡一樣。沒有代碼的人仍算在人數裡，但他不能登入報名頁。</p>
-    <ul class="list">${s.members.map(id=>{const p=person(id);const k=codeKey(p);
-      const st=!k?'<span class="pay due">沒有代碼，不能登入</span>':dup.has(k)?'<span class="pay due">代碼重複，不能登入</span>':!/^\d{3,12}$/.test(k)?'<span class="pay due">代碼格式不對</span>':`<span class="tag m">代碼 ${esc(k)}</span>`;
-      return `<li><span class="nm expand" data-act="goPerson" data-id="${id}" role="button" tabindex="0">${esc(p.name)}</span>${st}</li>`}).join('')}</ul>
-  </section>
-  <section class="card"><h2>代碼檢查</h2>
-    ${dup.size||noCode.length||badFmt.length?'':'<p class="muted">所有成員的代碼都正常。</p>'}
-    ${dup.size?`<p class="warnnote">有重複的代碼，重複的人無法登入報名頁。請到「成員」改成不同的。</p>`:''}
-    ${badFmt.length?`<p class="warnnote">這些人的代碼不是 3～12 位數字，請改一下：${badFmt.map(p=>esc(p.name)).join('、')}</p>`:''}
-    ${noCode.length?`<p class="warnnote">還沒設定代碼（無法登入報名頁）：${noCode.map(p=>esc(p.name)).join('、')}。到「成員」點開他的名字設定。</p>`:''}
+  <section class="card"><h2>成員代碼與 LINE</h2><p class="small">每個人的報名代碼、LINE 綁定、新註冊和會員申請，都整合在「成員」頁了。</p>
+    ${dup.size||noCode.length||badFmt.length?`<p class="warnnote">${[noCode.length?`${noCode.length} 人沒代碼`:'',dup.size?'有重複的代碼':'',badFmt.length?`${badFmt.length} 人代碼格式不對`:''].filter(Boolean).join('・')}</p>`:''}
+    <div class="row-btns"><button type="button" class="btn sm" data-act="goPeople" data-v="all">到成員頁</button>${noCode.length?`<button type="button" class="btn sm" data-act="goPeople" data-v="nocode">看沒代碼的人</button>`:''}</div>
   </section>`;
 }
 function vSettings(s){
@@ -766,7 +762,7 @@ function rosterCard(s,d,x){
   return `<section class="card"><div class="row-btns"><h2>${md(d)}（週${wd(d)}）名單</h2>${owe.length?`<button class="btn sm right" data-act="payAll">臨打全部已收</button>`:''}</div>
     <p class="muted small" style="margin:-2px 0 2px">報名 ${openInfo(d).label} 起・${closeInfo(d).label} 截止${Date.now()>=closeInfo(d).at?"（已截止）":Date.now()<openInfo(d).at?"（還沒開始）":""}</p>
     <p class="muted small" style="margin:-2px 0 8px">正取 ${n}/${cap}${back.length?`・備取 ${back.length}`:''}${webN?`・網路報名 ${webN} 人`:''}${prioOn()&&webN?`・${ents.active?`優先報名期間至 ${priorityInfo(d).label}，臨打先列備取`:`${priorityInfo(d).label} 已過，依報名順序`}`:''}</p>
-    ${regCard(s)}
+    ${pendingRegs().length?`<p class="warnnote">有 ${pendingRegs().length} 位新註冊等你確認，<button type="button" class="link" data-act="goPeople" data-v="all">到成員頁處理</button>。</p>`:''}
     ${ents.unknown?`<p class="warnnote">有 ${ents.unknown} 筆報名對不到人：${ents.unk.map(r=>{const g=(ui.regs||{})[r.c];const t=new Date(r.t).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});return g?`代碼 ${esc(r.c)}＝剛註冊的「${esc(g.name)}」（${t} 報名），請在上方「新註冊」按加入或綁定`:`代碼 ${esc(r.c)}（${t} 報名），成員名單裡沒有人用這個代碼，可能是對方自己改過代碼，或你改了他的代碼。這是誰？<select data-ch="unkBind" data-code="${esc(r.c)}"><option value="">選擇這個人…</option>${state.people.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(q=>`<option value="${q.id}">${esc(q.name)}${isMember(s,q.id)?'（季費）':''}</option>`).join('')}</select>`}).join('<br>')}</p>`:''}
     ${rows?`<ul class="list roster">${rows}</ul>`:`<p class="muted">還沒有人。等成員報名，或從下面加入。</p>`}
     <div class="mvbar">
@@ -904,12 +900,20 @@ function vGrid(s){
   <tfoot>${foot('人數',d=>Object.keys(getSess(s,d).att||{}).length||'')}${foot('用球',d=>getSess(s,d).balls||'')}${foot('每人球錢',d=>share(s,d)||'')}${foot('收入',d=>income(s,d)||'')}</tfoot></table></div>
   <p class="muted small">點日期可以打開那一天。季費會員：點一下出席／取消。臨打：空白 → 已收 ${fee()} → 未收 → 空白。</p>`;
 }
+function personLine(s,id){
+  const L=ui.line;if(!L||!L.token)return '';const p=person(id);const k=codeKey(p);if(!k)return '';
+  if(lineBound(id))return `<div class="row-btns" style="margin:0"><span class="small">LINE：<b>已綁定</b> ✓</span><button type="button" class="btn sm ghost right" data-act="lineUnbind" data-id="${id}">解除綁定</button></div>`;
+  const pend=L.pending||[];
+  return `<div><span class="small">LINE：<b>還沒綁定</b></span>${pend.length?`<select data-ch="lineBindPick" data-id="${id}" style="width:100%;margin-top:6px" aria-label="從剛加入的 LINE 好友選一個綁定"><option value="">從剛加入官方帳號的人選一個綁定…</option>${pend.map(x=>`<option value="${esc(x.uid)}">${esc(x.n||'（沒有名稱）')}${x.t?`（${new Date(x.t).getMonth()+1}/${new Date(x.t).getDate()} 加入）`:''}</option>`).join('')}</select>`:''}
+    <p class="muted small" style="margin:4px 0 0">或請他加官方帳號好友，傳「綁定 ${esc(k)}」。</p></div>`;
+}
 function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
   return `<div class="pform">
     <label>名字<input type="text" id="pn-${id}" data-ch="pname" data-id="${id}" value="${esc(p.name)}"></label>
     <label>LINE 上的其他稱呼（用逗號分開）<input type="text" id="pa-${id}" data-ch="palias" data-id="${id}" value="${esc((p.aliases||[]).join(', '))}"></label>
     <label>報名代碼（成員登入報名頁用，只能是數字）<input type="text" id="pcode-${id}" data-ch="pcode" data-id="${id}" value="${esc(p.code||'')}" placeholder="3～12 位數字，例如 1234" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="off"></label>
-    ${p.code?'':'<p class="muted small" style="margin:-4px 0 0">還沒設定代碼，這個人無法登入報名頁。</p>'}
+    ${p.code?'':'<p class="muted small" style="margin:-4px 0 0">還沒設定代碼，這個人無法登入報名頁，也不能綁 LINE。</p>'}
+    ${personLine(s,id)}
     <label>這一季身分<select id="pr-${id}" data-ch="prole" data-id="${id}"><option value="m" ${m?'selected':''}>季費會員</option><option value="g" ${m?'':'selected'}>臨打</option></select></label>
     ${m?`<label>本季季費<input type="number" inputmode="numeric" id="pf-${id}" data-ch="pfee" data-id="${id}" value="${memberFee(s,id)}"></label>
     <label>本季已繳<input type="number" inputmode="numeric" id="pp-${id}" data-ch="ppaid" data-id="${id}" value="${s.feePaid[id]||0}"></label>`:''}
@@ -918,11 +922,11 @@ function personForm(s,id,o){const p=person(id);const m=isMember(s,id);
 function mreqCard(s){
   const L=(ui.mreqs||[]).filter(r=>person(r.id)&&!s.members.includes(r.id));if(!L.length)return '';
   const cap=rt('cap',s);const full=s.members.length>=cap;
-  return `<section class="card"><h2>會員申請（${L.length}）</h2>
+  return `<div style="margin-top:14px"><h3>會員申請（${L.length}）</h3>
     <p class="muted small">這些人在報名頁報名成為季費會員，名額先保留 3 天。收到季費後按「已收季費，加入」；目前會員 ${s.members.length}/${cap}。</p>
     <ul class="list">${L.map(r=>{const until=new Date(r.t+MEMBER_HOLD);return `<li style="flex-wrap:wrap;gap:6px"><span class="nm">${esc(pname(r.id))}</span><span class="muted small">保留到 ${until.getMonth()+1}/${until.getDate()} ${String(until.getHours()).padStart(2,'0')}:${String(until.getMinutes()).padStart(2,'0')}</span>
       <span class="row-btns" style="width:100%;margin:4px 0 0"><button type="button" class="btn sm pri" data-act="mreqOk" data-id="${r.id}" data-code="${esc(r.k)}" data-v="paid" ${full?'disabled':''}>已收季費 ${money(memberFee(s,r.id))}，加入</button><button type="button" class="btn sm" data-act="mreqOk" data-id="${r.id}" data-code="${esc(r.k)}" data-v="later" ${full?'disabled':''}>先加入，之後收</button><button type="button" class="btn sm warn ghost" data-act="mreqNo" data-id="${r.id}" data-code="${esc(r.k)}">不同意</button></span></li>`}).join('')}</ul>
-    ${full?'<p class="warnnote">會員已滿，不能再加入。</p>':''}</section>`;
+    ${full?'<p class="warnnote">會員已滿，不能再加入。</p>':''}</div>`;
 }
 function personHist(id){
   let n=0,last='';const seasons=[];
@@ -933,19 +937,27 @@ function vPeople(s){
   const {ids,out}=calc(s);const cap=rt('cap',s);
   const mem=ids.filter(id=>out[id].member),gst=ids.filter(id=>!out[id].member);
   const others=state.people.filter(p=>!out[p.id]).map(p=>({p,h:personHist(p.id)})).sort((a,b)=>(b.h.last||'').localeCompare(a.h.last||'')||a.p.name.localeCompare(b.p.name,'zh-Hant'));
-  const q=norm(ui.pq||'');const hit=id=>{if(!q)return true;const p=person(id);return [p.name,...(p.aliases||[]),p.code||''].some(x=>norm(x).includes(q))};
+  const q=norm(ui.pq||'');const pf=ui.pf||'all';const dup=dupCodes();
+  const flt=id=>{const p=person(id);const k=codeKey(p);if(pf==='nocode')return !k||dup.has(k)||!/^\d{3,12}$/.test(k);if(pf==='noline')return !!(ui.line&&ui.line.token)&&!!k&&!lineBound(id);return true};
+  const hit=id=>{if(!flt(id))return false;if(!q)return true;const p=person(id);return [p.name,...(p.aliases||[]),p.code||''].some(x=>norm(x).includes(q))};
   const hide=id=>hit(id)?'':' hidden';
   const li=id=>{const o=out[id];const open=ui.open===id;
     const right=o.member?`<span class="small muted">出席 ${o.att} · 剩 <b class="num" style="font-size:16px;color:var(--ink)">${o.remain}</b> 次</span>${o.due>0?`<span class="pay due">季費欠 ${money(o.due)}</span>`:'<span class="pay ok">季費已繳</span>'}${o.done?'<span class="tag m">已結清</span>':''}`
       :`<span class="small muted">出席 ${o.att}</span>${o.unpaid?`<span class="pay due">欠 ${money(o.unpaid)}</span>`:''}${o.done?'<span class="tag m">已結清</span>':''}`;
-    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${lineTag(id)}${right}${open?personForm(s,id,o):''}</li>`};
+    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(pname(id))} <span class="muted small">${open?'▴':'▾'}</span></span>${codeTag(id,dup)}${lineTag(id)}${right}${open?personForm(s,id,o):''}</li>`};
   const oli=({p,h:hh})=>{const id=p.id;const open=ui.open===id;
-    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(p.name)} <span class="muted small">${open?'▴':'▾'}</span></span><span class="small muted">${hh.n?`來過 ${hh.n} 次・最近 ${md(hh.last)}`:'還沒來過'}</span>${p.code?'':'<span class="pay due">沒代碼</span>'}
+    return `<li data-pn="${id}"${hide(id)}><span class="nm expand" data-act="open" data-id="${id}" role="button" tabindex="0">${esc(p.name)} <span class="muted small">${open?'▴':'▾'}</span></span><span class="small muted">${hh.n?`來過 ${hh.n} 次・最近 ${md(hh.last)}`:'還沒來過'}</span>${codeTag(id,dup)}${lineTag(id)}
       ${open?`<div class="pform"><p class="muted small" style="margin:0">${hh.n?`以前出席：${hh.seasons.map(x=>`${esc(x.name)} ${x.n} 次`).join('、')}`:'這個人還沒有出席紀錄（可能是剛註冊、或從 LINE 名單匯入）。'}</p></div>
         <div class="row-btns" style="margin-top:6px"><button class="btn sm pri" data-act="mkMember" data-id="${id}">設為本季季費會員</button><button class="btn sm" data-act="mkGuestNext" data-id="${id}">加進下次打球名單</button></div>
         ${personForm(s,id,null).replace(/<label>這一季身分[\s\S]*?<\/label>/,'')}`:''}</li>`};
-  const rc=regCard(s);
-  return (rc?`<section class="card">${rc}</section>`:'')+mreqCard(s)+`${state.people.length>12?`<div class="row-btns" style="margin:0 0 12px"><input type="search" id="pq" data-in="pq" value="${esc(ui.pq||'')}" placeholder="搜尋名字、LINE 稱呼或代碼" style="flex:1" aria-label="搜尋成員"></div>`:''}<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
+  const rc=regCard(s),mc=mreqCard(s),lc=linePendingHtml(s);const nIn=pendingRegs().length+(ui.mreqs||[]).filter(r=>person(r.id)&&!s.members.includes(r.id)).length+((ui.line&&ui.line.pending)||[]).length;
+  const roster=ids.map(id=>person(id));const withCode=roster.filter(p=>codeKey(p)).length;const withLine=roster.filter(p=>lineBound(p.id)).length;
+  const lineOn=!!(ui.line&&ui.line.token);
+  const inbox=nIn?`<section class="card"><h2>新加入，等你處理（${nIn}）</h2>${rc}${mc}${lc}</section>`:'';
+  const summary=`<section class="card"><div class="row-btns"><h2>本季 ${roster.length} 人</h2><span class="muted small right">有代碼 ${withCode}${lineOn?`・綁 LINE ${withLine}`:''}</span></div>
+    <div class="seg wide" role="group" aria-label="篩選">${[['all','全部'],['nocode','沒代碼'],...(lineOn?[['noline','未綁 LINE']]:[])].map(([k,l])=>`<button type="button" class="${pf===k?'on':''}" data-act="pfilter" data-v="${k}">${l}</button>`).join('')}</div>
+    ${pf==='nocode'?'<p class="muted small" style="margin:8px 0 0">沒代碼（或代碼重複、格式不對）的人不能登入報名頁，也不能綁 LINE。點名字設定代碼。</p>':pf==='noline'?'<p class="muted small" style="margin:8px 0 0">請他們加官方帳號好友、傳「綁定 自己的代碼」；或點名字，從剛加入的 LINE 好友裡幫他綁定。</p>':''}</section>`;
+  return inbox+summary+`${state.people.length>12?`<div class="row-btns" style="margin:0 0 12px"><input type="search" id="pq" data-in="pq" value="${esc(ui.pq||'')}" placeholder="搜尋名字、LINE 稱呼或代碼" style="flex:1" aria-label="搜尋成員"></div>`:''}<section class="card"><div class="row-btns"><h2>季費會員</h2><span class="num right" style="font-size:20px;color:${mem.length===cap?'var(--court)':'var(--warn)'}">${mem.length}/${cap}</span></div>
     ${mem.length?`<ul class="list">${mem.map(li).join('')}</ul>`:'<p class="muted">還沒有季費會員。從下面新增，或把臨打設成季費會員。</p>'}</section>
   <section class="card"><h2>本季臨打</h2>${gst.length?`<ul class="list">${gst.map(li).join('')}</ul>`:'<p class="muted">這一季還沒有臨打。</p>'}</section>
   ${others.length?`<section class="card"><h2>其他人（${others.length}）</h2><p class="muted small">這季還沒出現的人：以前來過的、剛註冊的。點名字可以看資料、改名字和代碼，或設為季費會員。</p><ul class="list">${others.map(oli).join('')}</ul></section>`:''}
@@ -1231,6 +1243,9 @@ function act0(a,el){
     case 'lineBindGo':{const uid=el.dataset.uid;const p=person(id);if(!p||!codeKey(p)){toast('這個人還沒有代碼，先到「成員」幫他設定');break}
       toast('綁定中…');jsonpCall(CFG.url,{action:'linebind',token:CFG.pw,uid,code:codeKey(p)}).then(j=>{if(j&&j.ok){toast(`已把 LINE 綁定為 ${p.name}，他會收到通知`);loadLineInfo(true)}else toast('綁定失敗：'+((j&&j.error)||'連不上'))},()=>toast('連不上，請再試一次'));break}
     case 'lineForget':{const uid=el.dataset.uid;if(ui.line)ui.line.pending=(ui.line.pending||[]).filter(x=>x.uid!==uid);render();jsonpCall(CFG.url,{action:'lineforget',token:CFG.pw,uid}).catch(()=>{});break}
+    case 'lineUnbind':{const p=person(id);toast('解除中…');jsonpCall(CFG.url,{action:'lineunbind',token:CFG.pw,code:codeKey(p)}).then(j=>{if(j&&j.ok){toast(`已解除 ${p.name} 的 LINE 綁定`);loadLineInfo(true)}else toast('解除失敗：'+((j&&j.error)||'連不上'))},()=>toast('連不上，請再試一次'));break}
+    case 'pfilter':ui.pf=el.dataset.v;render();break;
+    case 'goPeople':ui.tab='people';ui.pf=el.dataset.v||'all';ui.open=null;render();window.scrollTo(0,0);loadSignups();loadLineInfo();break;
     case 'lineRefresh':loadLineInfo(true);toast('重新整理中…');break;
     case 'copyMsg':{const t=personMsg(s,id);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼給他就可以了'),()=>toast('這個畫面不能複製'));break}
     case 'copyBall':{const t=ballMessage(s);navigator.clipboard.writeText(t).then(()=>toast('已複製，貼到 LINE 就可以了'),()=>toast('這個畫面不能複製'));break}
@@ -1301,6 +1316,7 @@ function change0(el){
       if(v&&!/^\d{3,12}$/.test(v)){toast('代碼只能是 3～12 位數字');render();return}
       if(k){const dup=state.people.find(q=>q.id!==id&&codeKey(q)===k);if(dup){toast(`代碼「${v}」已經被 ${dup.name} 使用，請換一個`);render();return}}
       person(id).code=v;save(v?'代碼已更新':'代碼已清除');break}
+    case 'lineBindPick':{if(!el.value)return;act('lineBindGo',{dataset:{uid:el.value,id}});break}
     case 'lineBindSel':{if(!el.value)return;act('lineBindGo',{dataset:{uid:el.dataset.uid,id:el.value}});break}
     case 'suInfo':{state.signup={...(state.signup||{}),[el.dataset.k]:el.value.trim()};save('已更新打球'+(el.dataset.k==='time'?'時間':'地點'));break}
     case 'set':{const v=+el.value;if(v>0){state.settings[el.dataset.k]=v;if(s){s.rates=s.rates||{};s.rates[el.dataset.k]=v}save()}break}
@@ -1312,7 +1328,7 @@ function change0(el){
 }
 /* ---------- undo: snapshot before every edit that actually changes data ---------- */
 const undoStack=[];
-const NOUNDO=new Set(['tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo','suRefresh','suLink','mmode','srcMode']);
+const NOUNDO=new Set(['pfilter','goPeople','lineUnbind','lineRefresh','lineBindGo','lineForget','lineMsg','tab','date','parse','cancelParse','open','smode','qdOpen','qdClose','planSkip','planUnskip','planMode','copy','copyBall','copyMsg','logout','newSeason','goPerson','undo','suRefresh','suLink','mmode','srcMode']);
 function renderUndo(){const b=$('#undo');if(b)b.hidden=!(loaded&&undoStack.length)}
 function withUndo(fn){
   if(!state||!state.seasons)return fn();
